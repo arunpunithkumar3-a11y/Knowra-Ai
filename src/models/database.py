@@ -4,7 +4,7 @@ from enum import Enum
 from typing import List, Optional
 
 import sqlalchemy.dialects.postgresql as pg
-from sqlalchemy import Column
+from sqlalchemy import Column, ForeignKey, Index, UniqueConstraint
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -20,6 +20,13 @@ class JoinRequestStatus(str, Enum):
     rejected = "rejected"
 
 
+class EmbeddingStatus(str, Enum):
+    pending = "pending"
+    processing = "processing"
+    completed = "completed"
+    failed = "failed"
+
+
 class User(SQLModel, table=True):
     __tablename__ = "users"
 
@@ -31,25 +38,38 @@ class User(SQLModel, table=True):
         )
     )
 
-    email: str = Field(index=True, unique=True)
+    email: str = Field(index=True, unique=True, max_length=255)
     password_hash: str = Field(exclude=True)
-    user_name: str
+    user_name: str = Field(max_length=100)
 
-    created_at: datetime = Field(default_factory=datetime.now(timezone.utc))
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"server_default": "now()"},
+    )
 
     memberships: List["OrgMember"] = Relationship(
         back_populates="user",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={
+            "lazy": "selectin",
+            "cascade": "all, delete-orphan",
+        },
     )
 
     join_requests: List["JoinRequest"] = Relationship(
         back_populates="user",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={
+            "lazy": "selectin",
+            "cascade": "all, delete-orphan",
+            "foreign_keys": "[JoinRequest.user_id]",
+        },
     )
 
-    chats: List["ChatState"] = Relationship(
+    chats: List["Chat"] = Relationship(
         back_populates="user",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={
+            "lazy": "selectin",
+            "cascade": "all, delete-orphan",
+        },
     )
 
 
@@ -64,32 +84,44 @@ class Org(SQLModel, table=True):
         )
     )
 
-    org_name: str
-    description: Optional[str] = None
-    logo_url: Optional[str] = None
+    org_name: str = Field(index=True, max_length=255)
+    description: Optional[str] = Field(default=None, max_length=1000)
 
-    plan: str = Field(default="free")
-
-    created_at: datetime = Field(default_factory=datetime.now(timezone.utc))
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"server_default": "now()"},
+    )
 
     members: List["OrgMember"] = Relationship(
         back_populates="org",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={
+            "lazy": "selectin",
+            "cascade": "all, delete-orphan",
+        },
     )
 
     join_requests: List["JoinRequest"] = Relationship(
         back_populates="org",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={
+            "lazy": "selectin",
+            "cascade": "all, delete-orphan",
+        },
     )
 
     documents: List["Document"] = Relationship(
         back_populates="org",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={
+            "lazy": "selectin",
+            "cascade": "all, delete-orphan",
+        },
     )
 
-    chats: List["ChatState"] = Relationship(
+    chats: List["Chat"] = Relationship(
         back_populates="org",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={
+            "lazy": "selectin",
+            "cascade": "all, delete-orphan",
+        },
     )
 
 
@@ -105,22 +137,36 @@ class OrgMember(SQLModel, table=True):
     )
 
     user_id: uuid.UUID = Field(
-        foreign_key="users.uid",
-        index=True,
+        sa_column=Column(
+            pg.UUID(as_uuid=True),
+            ForeignKey("users.uid", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        )
     )
 
     org_id: uuid.UUID = Field(
-        foreign_key="orgs.uid",
-        index=True,
+        sa_column=Column(
+            pg.UUID(as_uuid=True),
+            ForeignKey("orgs.uid", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        )
     )
 
     role: OrgRole = Field(default=OrgRole.member)
 
-    joined_at: datetime = Field(default_factory=datetime.now(timezone.utc))
+    joined_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"server_default": "now()"},
+    )
 
     user: Optional["User"] = Relationship(back_populates="memberships")
-
     org: Optional["Org"] = Relationship(back_populates="members")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "org_id", name="uq_org_members_user_org"),
+    )
 
 
 class JoinRequest(SQLModel, table=True):
@@ -135,29 +181,56 @@ class JoinRequest(SQLModel, table=True):
     )
 
     user_id: uuid.UUID = Field(
-        foreign_key="users.uid",
-        index=True,
+        sa_column=Column(
+            pg.UUID(as_uuid=True),
+            ForeignKey("users.uid", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        )
     )
 
     org_id: uuid.UUID = Field(
-        foreign_key="orgs.uid",
-        index=True,
+        sa_column=Column(
+            pg.UUID(as_uuid=True),
+            ForeignKey("orgs.uid", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        )
     )
 
     status: JoinRequestStatus = Field(default=JoinRequestStatus.pending)
 
-    requested_at: datetime = Field(default_factory=datetime.now(timezone.utc))
+    requested_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"server_default": "now()"},
+    )
 
     reviewed_at: Optional[datetime] = None
 
     reviewed_by: Optional[uuid.UUID] = Field(
         default=None,
-        foreign_key="users.uid",
+        sa_column=Column(
+            pg.UUID(as_uuid=True),
+            ForeignKey("users.uid", ondelete="SET NULL"),
+            nullable=True,
+        ),
     )
 
-    user: Optional["User"] = Relationship(back_populates="join_requests")
-
+    user: Optional["User"] = Relationship(
+        back_populates="join_requests",
+        sa_relationship_kwargs={"foreign_keys": "[JoinRequest.user_id]"},
+    )
     org: Optional["Org"] = Relationship(back_populates="join_requests")
+
+    __table_args__ = (
+        Index(
+            "uq_pending_join_requests",
+            "user_id",
+            "org_id",
+            unique=True,
+            postgresql_where=(status == JoinRequestStatus.pending),
+        ),
+    )
 
 
 class Document(SQLModel, table=True):
@@ -172,26 +245,37 @@ class Document(SQLModel, table=True):
     )
 
     org_id: uuid.UUID = Field(
-        foreign_key="orgs.uid",
-        index=True,
+        sa_column=Column(
+            pg.UUID(as_uuid=True),
+            ForeignKey("orgs.uid", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        )
     )
 
-    uploaded_by: uuid.UUID = Field(
-        foreign_key="users.uid",
-        index=True,
+    uploaded_by: Optional[uuid.UUID] = Field(
+        sa_column=Column(
+            pg.UUID(as_uuid=True),
+            ForeignKey("users.uid", ondelete="SET NULL"),
+            nullable=True,
+            index=True,
+        )
     )
 
-    title: str
-    file_path: str
+    title: str = Field(max_length=255)
+    file_path: str = Field(max_length=1024)
 
-    embedding_status: str = Field(default="pending")
+    embedding_status: EmbeddingStatus = Field(default=EmbeddingStatus.pending)
 
-    created_at: datetime = Field(default_factory=datetime.now(timezone.utc))
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"server_default": "now()"},
+    )
 
     org: Optional["Org"] = Relationship(back_populates="documents")
 
 
-class ChatState(SQLModel, table=True):
+class Chat(SQLModel, table=True):
     __tablename__ = "chats"
 
     uid: uuid.UUID = Field(
@@ -202,22 +286,31 @@ class ChatState(SQLModel, table=True):
         )
     )
 
-    user_uid: uuid.UUID = Field(
-        foreign_key="users.uid",
-        index=True,
+    user_id: uuid.UUID = Field(
+        sa_column=Column(
+            pg.UUID(as_uuid=True),
+            ForeignKey("users.uid", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        )
     )
 
     org_id: uuid.UUID = Field(
-        foreign_key="orgs.uid",
-        index=True,
+        sa_column=Column(
+            pg.UUID(as_uuid=True),
+            ForeignKey("orgs.uid", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        )
     )
 
-    thread_id: str = Field(index=True)
+    thread_id: str = Field(index=True, max_length=255)
+    chat_title: str = Field(max_length=255)
 
-    chat_title: str
-
-    created_at: datetime = Field(default_factory=datetime.now(timezone.utc))
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"server_default": "now()"},
+    )
 
     user: Optional["User"] = Relationship(back_populates="chats")
-
     org: Optional["Org"] = Relationship(back_populates="chats")

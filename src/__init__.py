@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
-from src.db.main import init_db
-from src.auth.routers import auth_router
+from src.core.main import init_db
+from src.api.auth import auth_router
 
 
 @asynccontextmanager
