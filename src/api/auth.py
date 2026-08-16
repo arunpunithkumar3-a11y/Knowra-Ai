@@ -1,30 +1,38 @@
 from datetime import timedelta
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
-from sqlalchemy.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.main import get_session
+from src.core.password import verify_password
 from src.core.redis import add_jti_to_blacklist
 from src.core.security import create_access_token
-from src.models.auth import UserLogin, UserSignup
+from src.models.auth_schemas import UserLogin, UserSignup
 from src.services.user import UserService
 
-user_serv = UserService()
 auth_router = APIRouter()
 
 REFRESH_TOKEN_EXPIRY_DAYS = 2
 
 
+async def get_user_service(session: AsyncSession = Depends(get_session)) -> UserService:
+    return UserService(session)
+
+
 @auth_router.post("/signup")
-async def user_signup(data: UserSignup, session: AsyncSession = Depends(get_session)):
-    email = data.email
-    if await user_serv.user_exists(email, session):
+async def user_signup(
+    data: UserSignup, 
+    session: AsyncSession = Depends(get_session),
+    user_service: UserService = Depends(get_user_service)
+):
+    if await user_service.user_exists(data.email):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"message": "user with this email already exists"},
         )
-    user = await user_serv.create_user(data, session)
+    user = await user_service.create_user(data)
     return JSONResponse(
         status_code=status.HTTP_201_CREATED,
         content={"message": "Account created successfully"},
@@ -32,12 +40,21 @@ async def user_signup(data: UserSignup, session: AsyncSession = Depends(get_sess
 
 
 @auth_router.post("/login")
-async def user_login(data: UserLogin, session: AsyncSession = Depends(get_session)):
-    user = await user_serv.get_user_by_email(data.email, session)
+async def user_login(
+    data: UserLogin, 
+    session: AsyncSession = Depends(get_session),
+    user_service: UserService = Depends(get_user_service)
+):
+    user = await user_service.get_user_by_email(data.email)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail={"message": "Account does not exists"},
+            detail={"message": "Account does not exist"},
+        )
+    if not verify_password(data.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"message": "Invalid credentials"},
         )
     access_token = create_access_token(
         data={"email": user.email, "user_id": str(user.uid)}

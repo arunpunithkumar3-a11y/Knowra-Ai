@@ -8,8 +8,7 @@ from sqlalchemy import Column, ForeignKey, Index, UniqueConstraint
 from sqlmodel import Field, Relationship, SQLModel
 
 
-class OrgRole(str, Enum):
-    owner = "owner"
+class UserRole(str, Enum):
     admin = "admin"
     member = "member"
 
@@ -41,10 +40,19 @@ class User(SQLModel, table=True):
     email: str = Field(index=True, unique=True, max_length=255)
     password_hash: str = Field(exclude=True)
     user_name: str = Field(max_length=100)
+    role: UserRole = Field(default=UserRole.member)
 
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
         sa_column_kwargs={"server_default": "now()"},
+    )
+
+    created_orgs: List["Org"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={
+            "lazy": "selectin",
+            "cascade": "all, delete-orphan",
+        },
     )
 
     memberships: List["OrgMember"] = Relationship(
@@ -61,6 +69,14 @@ class User(SQLModel, table=True):
             "lazy": "selectin",
             "cascade": "all, delete-orphan",
             "foreign_keys": "[JoinRequest.user_id]",
+        },
+    )
+
+    documents: List["Document"] = Relationship(
+        back_populates="uploader",
+        sa_relationship_kwargs={
+            "lazy": "selectin",
+            "cascade": "all, delete-orphan",
         },
     )
 
@@ -83,14 +99,24 @@ class Org(SQLModel, table=True):
             default=uuid.uuid4,
         )
     )
+    user_id: uuid.UUID = Field(
+        sa_column=Column(
+            pg.UUID(as_uuid=True),
+            ForeignKey("users.uid", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        )
+    )
 
     org_name: str = Field(index=True, max_length=255)
     description: Optional[str] = Field(default=None, max_length=1000)
 
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
         sa_column_kwargs={"server_default": "now()"},
     )
+
+    owner: Optional["User"] = Relationship(back_populates="created_orgs")
 
     members: List["OrgMember"] = Relationship(
         back_populates="org",
@@ -154,15 +180,13 @@ class OrgMember(SQLModel, table=True):
         )
     )
 
-    role: OrgRole = Field(default=OrgRole.member)
-
     joined_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
         sa_column_kwargs={"server_default": "now()"},
     )
 
-    user: Optional["User"] = Relationship(back_populates="memberships")
     org: Optional["Org"] = Relationship(back_populates="members")
+    user: Optional["User"] = Relationship(back_populates="memberships")
 
     __table_args__ = (
         UniqueConstraint("user_id", "org_id", name="uq_org_members_user_org"),
@@ -201,7 +225,7 @@ class JoinRequest(SQLModel, table=True):
     status: JoinRequestStatus = Field(default=JoinRequestStatus.pending)
 
     requested_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
         sa_column_kwargs={"server_default": "now()"},
     )
 
@@ -268,11 +292,12 @@ class Document(SQLModel, table=True):
     embedding_status: EmbeddingStatus = Field(default=EmbeddingStatus.pending)
 
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
         sa_column_kwargs={"server_default": "now()"},
     )
 
     org: Optional["Org"] = Relationship(back_populates="documents")
+    uploader: Optional["User"] = Relationship(back_populates="documents")
 
 
 class Chat(SQLModel, table=True):
@@ -308,7 +333,7 @@ class Chat(SQLModel, table=True):
     chat_title: str = Field(max_length=255)
 
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
         sa_column_kwargs={"server_default": "now()"},
     )
 

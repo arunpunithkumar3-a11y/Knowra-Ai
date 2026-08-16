@@ -1,19 +1,25 @@
 from redis.asyncio import Redis
 from src.config import configure
 
-redis_client = Redis.from_url(configure.REDIS_URL)
+redis_client = Redis.from_url(
+    configure.REDIS_URL,
+    max_connections=50,
+    decode_responses=True,
+)
 
 
-JTI_EXPIRY=3600
+# JTI blacklist expiry should be longer than the longest token (refresh token = 2 days)
+JTI_EXPIRY = 60 * 60 * 24 * 2  # 2 days in seconds
 
-async def add_jti_to_blacklist(jti:str) ->None:
+
+async def add_jti_to_blacklist(jti: str) -> None:
     await redis_client.setex(
         name=jti,
         time=JTI_EXPIRY,
-        value="true"
+        value="true",
     )
 
 
-async def token_in_blaclist(jti:str)->bool:
+async def token_in_blacklist(jti: str) -> bool:
     exists = await redis_client.exists(jti)
-    return exists==1    
+    return exists == 1    

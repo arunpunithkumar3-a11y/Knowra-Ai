@@ -1,13 +1,13 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from src.core.security import decode_access_token
+from src.core.security import decode_access_token, get_current_user
 from src.core.redis import token_in_blaclist
 
-securtiy = HTTPBearer()
+security = HTTPBearer()
 
 
-async def verify_token(creds: HTTPAuthorizationCredentials = Depends(securtiy)):
+async def verify_token(creds: HTTPAuthorizationCredentials = Depends(security)):
     token = creds.credentials
     token_data = decode_access_token(token)
     if not token_data:

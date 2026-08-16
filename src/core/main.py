@@ -1,21 +1,31 @@
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlmodel import SQLModel
-from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.ext.asyncio.session import AsyncSession
+
 from src.config import configure
-from src.models.database import User, Org, OrgMember, JoinRequest, Document, Chat
 
+engine = create_async_engine(
+    configure.DATABASE_URL,
+    echo=False,
+    pool_size=20,
+    max_overflow=10,
+    pool_pre_ping=True,
+    pool_recycle=3600,
+)
 
-engine = create_async_engine(configure.DATABASE_URL, echo=True)
+async_session_maker = async_sessionmaker(
+    bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
+
 
 async def init_db():
     # Importing models so SQLModel metadata registry knows about them before create_all
-    from src.models.database import User, Org, OrgMember, JoinRequest, Document, Chat
-
+    # NOTE: In production, use Alembic migrations instead of create_all
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
 
-async def get_session():
-    Session = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)        
-    async with Session() as session:
+
+async def get_session() -> AsyncSession:
+    async with async_session_maker() as session:
         yield session
