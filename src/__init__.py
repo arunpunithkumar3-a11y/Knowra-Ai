@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from src.api import auth_router, org_router
+from src.api import auth_router
 from src.core.main import init_db
 from src.exceptions import (
     AppException,
@@ -81,4 +81,3 @@ async def readiness_check():
 
 
 app.include_router(auth_router, prefix="/api/auth")
-app.include_router(org_router, prefix="/api/orgs")

@@ -1,7 +1,6 @@
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 from uuid import UUID
 
 import jwt
@@ -11,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import configure
 from src.core.main import get_session
-from src.core.password import verify_password
 from src.models.database import User
 from src.services.user import UserService
 
@@ -65,29 +63,29 @@ async def get_current_user(
 ) -> User:
     token = credentials.credentials
     token_data = decode_access_token(token)
-    
+
     if not token_data:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
         )
-    
+
     user_data = token_data.get("user_data", {})
     user_id = user_data.get("user_id")
-    
+
     if not user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token payload",
         )
-    
+
     user_service = UserService(session)
     user = await user_service.get_user_by_id(UUID(user_id))
-    
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
         )
-    
+
     return user

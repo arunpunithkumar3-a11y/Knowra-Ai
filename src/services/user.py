@@ -41,8 +41,9 @@ class UserService:
         await self.session.refresh(new_user)
         return new_user
 
-    async def update_user(self, data: UserUpdate, user: User) -> User:
+    async def update_user(self, data: UserUpdate, user_id: str) -> User:
         user_data = data.model_dump(exclude_unset=True)
+        user = await self.get_user_by_id(user_id)
         for k, v in user_data.items():
             setattr(user, k, v)
         await self.session.commit()

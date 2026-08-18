@@ -1,5 +1,4 @@
 from datetime import timedelta
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
@@ -23,9 +22,9 @@ async def get_user_service(session: AsyncSession = Depends(get_session)) -> User
 
 @auth_router.post("/signup")
 async def user_signup(
-    data: UserSignup, 
+    data: UserSignup,
     session: AsyncSession = Depends(get_session),
-    user_service: UserService = Depends(get_user_service)
+    user_service: UserService = Depends(get_user_service),
 ):
     if await user_service.user_exists(data.email):
         raise HTTPException(
@@ -41,9 +40,9 @@ async def user_signup(
 
 @auth_router.post("/login")
 async def user_login(
-    data: UserLogin, 
+    data: UserLogin,
     session: AsyncSession = Depends(get_session),
-    user_service: UserService = Depends(get_user_service)
+    user_service: UserService = Depends(get_user_service),
 ):
     user = await user_service.get_user_by_email(data.email)
     if not user:
