@@ -1,7 +1,7 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from src.core.redis import token_in_blaclist
+from src.core.redis import token_in_blacklist
 from src.core.security import decode_access_token
 
 security = HTTPBearer()
@@ -16,7 +16,7 @@ async def verify_token(creds: HTTPAuthorizationCredentials = Depends(security)):
             detail={"messages": "Invalid or expired token"},
         )
     jti = token_data.get("jti")
-    if jti and await token_in_blaclist(jti):
+    if jti and await token_in_blacklist(jti):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"messages": "Token revoked get a new access token"},

@@ -10,53 +10,58 @@ from src.models.database import User
 
 
 class UserService:
-    def __init__(self, session: AsyncSession):
-        self.session = session
-
-    async def get_user_by_id(self, uid: UUID) -> Optional[User]:
-        result = await self.session.execute(select(User).where(User.uid == uid))
+    async def get_user_by_id(self, uid: UUID, session: AsyncSession) -> Optional[User]:
+        result = await session.execute(select(User).where(User.uid == uid))
         return result.scalar_one_or_none()
 
-    async def get_user_by_email(self, email: str) -> Optional[User]:
-        result = await self.session.execute(select(User).where(User.email == email))
+    async def get_user_by_email(self, email: str, session: AsyncSession) -> Optional[User]:
+        result = await session.execute(select(User).where(User.email == email))
         return result.scalar_one_or_none()
 
-    async def get_user_by_user_name(self, user_name: str) -> Optional[User]:
-        result = await self.session.execute(
+    async def get_user_by_user_name(
+        self, user_name: str, session: AsyncSession
+    ) -> Optional[User]:
+        result = await session.execute(
             select(User).where(User.user_name == user_name)
         )
         return result.scalar_one_or_none()
 
-    async def user_exists(self, email: str) -> bool:
-        user = await self.get_user_by_email(email)
+    async def user_exists(self, email: str, session: AsyncSession) -> bool:
+        user = await self.get_user_by_email(email, session)
         return user is not None
 
-    async def create_user(self, data: UserSignup) -> User:
+    async def create_user(self, data: UserSignup, session: AsyncSession) -> User:
         user_data = data.model_dump()
         password = user_data.pop("password")
         password_hash = create_hash_password(password)
         new_user = User(**user_data, password_hash=password_hash)
-        self.session.add(new_user)
-        await self.session.commit()
-        await self.session.refresh(new_user)
+        session.add(new_user)
+        await session.commit()
+        await session.refresh(new_user)
         return new_user
 
-    async def update_user(self, data: UserUpdate, user_id: str) -> User:
+    async def update_user(
+        self, data: UserUpdate, user_id: str, session: AsyncSession
+    ) -> Optional[User]:
         user_data = data.model_dump(exclude_unset=True)
-        user = await self.get_user_by_id(user_id)
+        user = await self.get_user_by_id(user_id, session)
+        if not user:
+            return None
         for k, v in user_data.items():
             setattr(user, k, v)
-        await self.session.commit()
-        await self.session.refresh(user)
+        await session.commit()
+        await session.refresh(user)
         return user
 
-    async def delete_user(self, uid: UUID) -> Optional[User]:
-        user = await self.get_user_by_id(uid)
+    async def delete_user(self, uid: UUID, session: AsyncSession) -> Optional[User]:
+        user = await self.get_user_by_id(uid, session)
         if user:
-            await self.session.delete(user)
-            await self.session.commit()
+            await session.delete(user)
+            await session.commit()
         return user
 
-    async def get_all_users(self, skip: int = 0, limit: int = 100) -> list[User]:
-        result = await self.session.execute(select(User).offset(skip).limit(limit))
+    async def get_all_users(
+        self, session: AsyncSession, skip: int = 0, limit: int = 100
+    ) -> list[User]:
+        result = await session.execute(select(User).offset(skip).limit(limit))
         return result.scalars().all()

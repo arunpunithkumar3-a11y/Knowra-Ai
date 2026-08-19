@@ -16,8 +16,11 @@ auth_router = APIRouter()
 REFRESH_TOKEN_EXPIRY_DAYS = 2
 
 
-async def get_user_service(session: AsyncSession = Depends(get_session)) -> UserService:
-    return UserService(session)
+user_service = UserService()
+
+
+def get_user_service() -> UserService:
+    return user_service
 
 
 @auth_router.post("/signup")
@@ -26,12 +29,12 @@ async def user_signup(
     session: AsyncSession = Depends(get_session),
     user_service: UserService = Depends(get_user_service),
 ):
-    if await user_service.user_exists(data.email):
+    if await user_service.user_exists(data.email, session):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"message": "user with this email already exists"},
         )
-    user = await user_service.create_user(data)
+    user = await user_service.create_user(data, session)
     return JSONResponse(
         status_code=status.HTTP_201_CREATED,
         content={"message": "Account created successfully"},
@@ -44,7 +47,7 @@ async def user_login(
     session: AsyncSession = Depends(get_session),
     user_service: UserService = Depends(get_user_service),
 ):
-    user = await user_service.get_user_by_email(data.email)
+    user = await user_service.get_user_by_email(data.email, session)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

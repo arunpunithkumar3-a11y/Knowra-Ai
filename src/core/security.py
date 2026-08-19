@@ -1,17 +1,12 @@
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
-from uuid import UUID
 
 import jwt
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import HTTPException, status
+from fastapi.security import HTTPBearer
 
 from src.config import configure
-from src.core.main import get_session
-from src.models.database import User
-from src.services.user import UserService
 
 ACCESS_TOKEN_EXPIRY = 3600
 
@@ -55,37 +50,3 @@ def decode_access_token(token):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
         )
-
-
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    session: AsyncSession = Depends(get_session),
-) -> User:
-    token = credentials.credentials
-    token_data = decode_access_token(token)
-
-    if not token_data:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-        )
-
-    user_data = token_data.get("user_data", {})
-    user_id = user_data.get("user_id")
-
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload",
-        )
-
-    user_service = UserService(session)
-    user = await user_service.get_user_by_id(UUID(user_id))
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found",
-        )
-
-    return user
