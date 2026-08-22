@@ -1,11 +1,17 @@
-from typing import Optional
-from uuid import UUID
+from enum import Enum
+
 from pydantic import BaseModel
 
 
+class EmbeddingStatus(str, Enum):
+    pending = "pending"
+    processing = "processing"
+    completed = "completed"
+    failed = "failed"
+
+
 class AddDocument(BaseModel):
-    business_id: UUID
-    uploaded_by: Optional[UUID] = None
     original_filename: str
     file_type: str
-    extracted_text: Optional[str] = None
+    extracted_text: str
+    embedding_status: EmbeddingStatus

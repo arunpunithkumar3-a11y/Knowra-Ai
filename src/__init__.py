@@ -1,8 +1,10 @@
+import io
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
+from pypdf import PdfReader
 
 from src.api import auth_router
 from src.core.main import init_db
@@ -34,7 +36,6 @@ app = FastAPI(
     title="Knowra API",
     description="Production-grade API with authentication and organization management",
     version="1.0.0",
-    lifespan=lifespan,
 )
 
 
@@ -78,6 +79,25 @@ async def health_check():
 @app.get("/health/ready")
 async def readiness_check():
     return {"status": "ready", "service": "knowra-api"}
+
+
+@app.post("/dummy")
+async def dummy(file: UploadFile = File(...)):
+
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(
+            status_code=400, detail="Invalid file type. Only PDFs are allowed."
+        )
+
+    contents = await file.read()
+    pdf_stream = io.BytesIO(contents)
+    reader = PdfReader(pdf_stream)
+    extracted_text = ""
+    for page in reader.pages:
+        text = page.extract_text()
+        if text:
+            extracted_text += text
+    return extracted_text
 
 
 app.include_router(auth_router, prefix="/api/auth")
