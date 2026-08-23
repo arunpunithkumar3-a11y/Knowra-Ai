@@ -1,89 +1,119 @@
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.dependency import verify_token
-from models.buisness_schemas import BusinessCreate, BusinessUpdate
-from services.buisness import BuisnessService
+from src.core.dependency import verify_token
 from src.core.main import get_session
+from src.models.buisness_schemas import BusinessCreate, BusinessUpdate
+from src.services.buisness import BuisnessService
 
 buisness_service = BuisnessService()
 buisness_router = APIRouter()
 
 
-@buisness_router.get("/buisness{buisness_id}")
+def _parse_uuid(value: str, field_name: str = "ID") -> UUID:
+    try:
+        return UUID(str(value))
+    except (ValueError, AttributeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid {field_name} format",
+        )
+
+
+@buisness_router.get("/buisness/{buisness_id}")
 async def get_buisness(
     buisness_id: str,
-    session: AsyncSession = Depends(get_session()),
-    token_details=Depends(verify_token()),
+    session: AsyncSession = Depends(get_session),
+    token_details: dict = Depends(verify_token),
 ):
-
-    buisness = await buisness_service.get_businesses_by_owner(
-        buisness_id=buisness_id, session=session
+    b_uuid = _parse_uuid(buisness_id, "business ID")
+    buisness = await buisness_service.get_business_by_id(
+        business_id=b_uuid, session=session
     )
-    return JSONResponse(content=buisness, status_code=status.HTTP_200_OK)
+    if not buisness:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Business not found",
+        )
+    return buisness
 
 
-@buisness_router.get("/all_buisness{user_id}")
+@buisness_router.get("/all_buisness")
 async def get_all_buisness(
-    user_id: str,
-    session: AsyncSession = Depends(get_session()),
-    token_details=Depends(verify_token()),
+    session: AsyncSession = Depends(get_session),
+    token_details: dict = Depends(verify_token),
 ):
-
-    user_id = token_details["user_data"]["user_id"]
+    user_id = token_details.get("user_data", {}).get("user_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+        )
+    u_uuid = _parse_uuid(user_id, "user ID")
     all_buisness = await buisness_service.get_businesses_by_owner(
-        owner_id=user_id, session=session
+        owner_id=u_uuid, session=session
     )
-    return JSONResponse(content=all_buisness, status_code=status.HTTP_200_OK)
+    return all_buisness
 
 
-@buisness_router.post("/create_buisness")
+@buisness_router.post("/create_buisness", status_code=status.HTTP_201_CREATED)
 async def create_buisness(
     data: BusinessCreate,
-    session: AsyncSession = Depends(get_session()),
-    token_details=Depends(verify_token()),
+    session: AsyncSession = Depends(get_session),
+    token_details: dict = Depends(verify_token),
 ):
-    user_id = token_details["user_data"]["user_id"]
+    user_id = token_details.get("user_data", {}).get("user_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+        )
+    if not data.business_name or not data.business_name.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Business name is required",
+        )
+    u_uuid = _parse_uuid(user_id, "user ID")
     new_buisness = await buisness_service.create_business(
-        business_data=data, owner_id=user_id, session=session
+        business_data=data, owner_id=u_uuid, session=session
     )
-    return JSONResponse(
-        content={"message": new_buisness},
-        status_code=status.HTTP_201_CREATED,
-    )
+    return new_buisness
 
 
-@buisness_router.put("/update_buisness{buisness_id}")
+@buisness_router.put("/update_buisness/{buisness_id}")
 async def update_buisness(
     buisness_id: str,
     data: BusinessUpdate,
-    session: AsyncSession = Depends(get_session()),
-    token_details=Depends(verify_token()),
+    session: AsyncSession = Depends(get_session),
+    token_details: dict = Depends(verify_token),
 ):
+    b_uuid = _parse_uuid(buisness_id, "business ID")
     buisness = await buisness_service.update_business(
-        buisness_id=buisness_id, buisness_data=data, session=session
+        business_id=b_uuid, business_data=data, session=session
     )
     if not buisness:
         raise HTTPException(
-            detail="Buisness does not exist", status_code=status.HTTP_404_NOT_FOUND
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Business does not exist",
         )
-
     return buisness
 
 
-@buisness_router("/delete_buisness{buisness_id}")
+@buisness_router.delete("/delete_buisness/{buisness_id}")
 async def deleted_buisness(
     buisness_id: str,
-    session: AsyncSession = Depends(get_session()),
-    token_details=Depends(verify_token()),
+    session: AsyncSession = Depends(get_session),
+    token_details: dict = Depends(verify_token),
 ):
+    b_uuid = _parse_uuid(buisness_id, "business ID")
     buisness = await buisness_service.delete_business(
-        buisness_id=buisness_id, session=session
+        business_id=b_uuid, session=session
     )
     if not buisness:
         raise HTTPException(
-            detail="Buisness does not exist", status_code=status.HTTP_404_NOT_FOUND
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Business does not exist",
         )
-
-    return buisness
+    return {"message": "Business deleted successfully", "buisness_id": str(b_uuid)}

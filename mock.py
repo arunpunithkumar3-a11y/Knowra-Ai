@@ -1,40 +1,31 @@
-import uvicorn
-from fastapi import FastAPI, File, HTTPException, UploadFile
-from supabase import Client, create_client
+import asyncio
+import os
 
-app = FastAPI()
+from dotenv import load_dotenv
 
-# Replace these with your actual Supabase API credentials
-SUPABASE_URL = "https://supabase.co"
-SUPABASE_KEY = "your-long-anon-public-key-here"
-BUCKET_NAME = "my-bucket"
+load_dotenv()
+if "NVIDIA_API_KEY" in os.environ and "OPENAI_API_KEY" not in os.environ:
+    os.environ["OPENAI_API_KEY"] = os.environ["NVIDIA_API_KEY"]
 
-# Initialize the Supabase cloud client
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+from nemoguardrails import LLMRails, RailsConfig
 
 
-@app.post("/upload/")
-async def upload_file(file: UploadFile = File(...)):
-    try:
-        # Read the file data into memory
-        file_content = await file.read()
+async def main():
+    config = RailsConfig.from_path("src/agent/guardrails")
 
-        # Upload directly to the Supabase cloud bucket
-        # We use file.filename as the destination path inside the bucket
-        response = supabase.storage.from_(BUCKET_NAME).upload(
-            path=file.filename,
-            file=file_content,
-            file_options={"content-type": file.content_type, "x-upsert": "true"},
-        )
+    rails = LLMRails(config)
 
-        # Get the public web URL to view or download the file
-        public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(file.filename)
+    response = await rails.generate_async(
+        messages=[
+            {
+                "role": "user",
+                "content": "tell me a joke",
+            }
+        ]
+    )
 
-        return {"status": "Success", "filename": file.filename, "cloud_url": public_url}
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    print(response)
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    asyncio.run(main())

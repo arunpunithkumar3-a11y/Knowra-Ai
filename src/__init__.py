@@ -6,7 +6,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from pypdf import PdfReader
 
-from src.api import auth_router
+from src.api import auth_router, buisness_router, document_router
 from src.core.main import init_db
 from src.exceptions import (
     AppException,
@@ -100,4 +100,7 @@ async def dummy(file: UploadFile = File(...)):
     return extracted_text
 
 
-app.include_router(auth_router, prefix="/api/auth")
+app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
+app.include_router(buisness_router, prefix="/api/business", tags=["business"])
+app.include_router(document_router, prefix="/api/document", tags=["document"])
+

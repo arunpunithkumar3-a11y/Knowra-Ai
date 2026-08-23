@@ -1,78 +1,154 @@
 import io
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import JSONResponse
 from pypdf import PdfReader
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.dependency import verify_token
-from models.document_schemas import AddDocument, EmbeddingStatus
-from services.document import DocumentService
+from src.core.dependency import verify_token
 from src.core.main import get_session
+from src.models.document_schemas import AddDocument, EmbeddingStatus
+from src.services.buisness import BuisnessService
+from src.services.document import DocumentService
 
 document_router = APIRouter()
 document_service = DocumentService()
+buisness_service = BuisnessService()
 
 
-@document_router.get("/document{document_id}")
+MAX_PDF_PAGES = 10
+
+
+def _parse_uuid(value: str, field_name: str = "ID") -> UUID:
+    try:
+        return UUID(str(value))
+    except (ValueError, AttributeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid {field_name} format",
+        )
+
+
+@document_router.get("/document/{document_id}")
 async def get_document(
     document_id: str,
-    session: AsyncSession = Depends(get_session()),
-    token_details=Depends(verify_token()),
+    session: AsyncSession = Depends(get_session),
+    token_details: dict = Depends(verify_token),
 ):
+    doc_uuid = _parse_uuid(document_id, "document ID")
+    document = await document_service.get_document_by_id(id=doc_uuid, session=session)
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+    return document
 
-    document = await document_service.get_documeny_by_id(
-        document_id=document_id, session=session
-    )
-    return JSONResponse(content=document, status_code=status.HTTP_200_OK)
 
-
-@document_router.get("/all_document{user_id}")
+@document_router.get("/all_document")
 async def get_document_by_user(
-    user_id: str,
-    session: AsyncSession = Depends(get_session()),
-    token_details=Depends(verify_token()),
+    session: AsyncSession = Depends(get_session),
+    token_details: dict = Depends(verify_token),
 ):
-
-    user_id = token_details["user_data"]["user_id"]
-    all_document = await document_service.get_document_by_uploader(
-        uploader_id=user_id, session=session
+    user_id = token_details.get("user_data", {}).get("user_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+        )
+    u_uuid = _parse_uuid(user_id, "user ID")
+    all_document = await document_service.get_documents_by_uploader(
+        uploader_id=u_uuid, session=session
     )
-    return JSONResponse(content=all_document, status_code=status.HTTP_200_OK)
+    return all_document
 
 
-@document_router.get("/buisness_document{buisness_id}")
+@document_router.get("/buisness_document/{buisness_id}")
 async def get_document_by_buisness(
     buisness_id: str,
-    session: AsyncSession = Depends(get_session()),
-    token_details=Depends(verify_token()),
+    session: AsyncSession = Depends(get_session),
+    token_details: dict = Depends(verify_token),
 ):
-    document = await document_service.get_document_by_buisness_id(
-        buisness_id=buisness_id, session=session
+    b_uuid = _parse_uuid(buisness_id, "business ID")
+    documents = await document_service.get_documents_by_business_id(
+        buisness_id=b_uuid, session=session
     )
-    return JSONResponse(content=document, status_code=status.HTTP_200_OK)
+    return documents
 
 
-@document_router.post("/create_document{buisness_id}")
+@document_router.post(
+    "/create_document/{buisness_id}", status_code=status.HTTP_201_CREATED
+)
 async def create_document(
     buisness_id: str,
     file: UploadFile = File(...),
-    session: AsyncSession = Depends(get_session()),
-    token_details=Depends(verify_token()),
+    session: AsyncSession = Depends(get_session),
+    token_details: dict = Depends(verify_token),
 ):
-    if not file.filename.lower().endswith(".pdf"):
+    user_id = token_details.get("user_data", {}).get("user_id")
+    if not user_id:
         raise HTTPException(
-            status_code=400, detail="Invalid file type. Only PDFs are allowed."
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+        )
+    u_uuid = _parse_uuid(user_id, "user ID")
+    b_uuid = _parse_uuid(buisness_id, "business ID")
+
+    # Verify that the business exists
+    business = await buisness_service.get_business_by_id(
+        business_id=b_uuid, session=session
+    )
+    if not business:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Business not found",
         )
 
-    contents = await file.read()
-    pdf_stream = io.BytesIO(contents)
-    reader = PdfReader(pdf_stream)
-    extracted_text = ""
-    for page in reader.pages:
-        text = page.extract_text()
-        if text:
-            extracted_text += text
+    if not file or not file.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No file provided",
+        )
+
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file type. Only PDFs are allowed.",
+        )
+
+    try:
+        contents = await file.read()
+        if not contents:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded file is empty",
+            )
+        pdf_stream = io.BytesIO(contents)
+        reader = PdfReader(pdf_stream)
+        num_pages = len(reader.pages)
+        if num_pages == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="PDF contains no pages",
+            )
+        if num_pages > MAX_PDF_PAGES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"PDF exceeds the maximum limit of {MAX_PDF_PAGES} pages (uploaded PDF has {num_pages} pages)",
+            )
+        extracted_text = ""
+        for page in reader.pages:
+            text = page.extract_text()
+            if text:
+                extracted_text += text
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to process PDF file: {str(e)}",
+        )
 
     data = AddDocument(
         original_filename=file.filename,
@@ -80,28 +156,32 @@ async def create_document(
         extracted_text=extracted_text,
         embedding_status=EmbeddingStatus.pending,
     )
-    user_id = token_details["user_data"]["user_id"]
     new_document = await document_service.add_document(
-        document=data, user_id=user_id, buisness_id=buisness_id, session=session
+        document=data, user_id=u_uuid, business_id=b_uuid, session=session
     )
     return JSONResponse(
-        content={"message": new_document},
+        content={
+            "message": "Document created successfully",
+            "document_id": str(new_document.uid),
+        },
         status_code=status.HTTP_201_CREATED,
     )
 
 
-@document_router("/delete_document{document_id}")
+@document_router.delete("/delete_document/{document_id}")
 async def deleted_document(
     document_id: str,
-    session: AsyncSession = Depends(get_session()),
-    token_details=Depends(verify_token()),
+    session: AsyncSession = Depends(get_session),
+    token_details: dict = Depends(verify_token),
 ):
+    doc_uuid = _parse_uuid(document_id, "document ID")
     document = await document_service.delete_document(
-        document_id=document_id, session=session
+        document_id=doc_uuid, session=session
     )
     if not document:
         raise HTTPException(
-            detail="document does not exist", status_code=status.HTTP_404_NOT_FOUND
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
         )
 
-    return JSONResponse(content=document, status_code=status.HTTP_200_OK)
+    return {"message": "Document deleted successfully", "document_id": str(doc_uuid)}

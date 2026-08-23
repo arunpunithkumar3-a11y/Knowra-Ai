@@ -1,0 +1,21 @@
+models:
+  - type: main
+    engine: openai
+    model: nvidia/nemotron-3-super-120b-a12b
+    parameters:
+      base_url: "https://integrate.api.nvidia.com/v1"
+    api_key_env_var: NVIDIA_API_KEY
+
+  - type: embeddings
+    engine: openai
+    model: nvidia/nemotron-3-embed-1b
+    parameters:
+      base_url: "https://integrate.api.nvidia.com/v1"
+    api_key_env_var: NVIDIA_API_KEY
+
+rails:
+  dialog:
+    user_messages:
+      embeddings_only: true
+      embeddings_only_similarity_threshold: 0.75
+
