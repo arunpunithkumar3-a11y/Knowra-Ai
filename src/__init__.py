@@ -8,6 +8,7 @@ from pypdf import PdfReader
 
 from src.api import auth_router, buisness_router, document_router
 from src.core.main import init_db
+from src.core.redis import setup_memory
 from src.exceptions import (
     AppException,
     AuthenticationError,
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     logger.info("Application starting up...")
     await init_db()
+    await setup_memory()
     yield
     logger.info("Application shutting down...")
 
@@ -103,4 +105,3 @@ async def dummy(file: UploadFile = File(...)):
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(buisness_router, prefix="/api/business", tags=["business"])
 app.include_router(document_router, prefix="/api/document", tags=["document"])
-

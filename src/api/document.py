@@ -3,19 +3,21 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import JSONResponse
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.dependency import verify_token
 from src.core.main import get_session
 from src.models.document_schemas import AddDocument, EmbeddingStatus
-from src.services.buisness import BuisnessService
+from src.services.business import BusinessService
 from src.services.document import DocumentService
+from src.tasks.document_tasks import process_document
 
 document_router = APIRouter()
 document_service = DocumentService()
-buisness_service = BuisnessService()
-
+business_service = BusinessService()
+splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=200)
 
 MAX_PDF_PAGES = 10
 
@@ -64,24 +66,24 @@ async def get_document_by_user(
     return all_document
 
 
-@document_router.get("/buisness_document/{buisness_id}")
-async def get_document_by_buisness(
-    buisness_id: str,
+@document_router.get("/business_document/{business_id}")
+async def get_document_by_business(
+    business_id: str,
     session: AsyncSession = Depends(get_session),
     token_details: dict = Depends(verify_token),
 ):
-    b_uuid = _parse_uuid(buisness_id, "business ID")
+    b_uuid = _parse_uuid(business_id, "business ID")
     documents = await document_service.get_documents_by_business_id(
-        buisness_id=b_uuid, session=session
+        business_id=b_uuid, session=session
     )
     return documents
 
 
 @document_router.post(
-    "/create_document/{buisness_id}", status_code=status.HTTP_201_CREATED
+    "/create_document/{business_id}", status_code=status.HTTP_201_CREATED
 )
 async def create_document(
-    buisness_id: str,
+    business_id: str,
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
     token_details: dict = Depends(verify_token),
@@ -93,10 +95,10 @@ async def create_document(
             detail="Invalid token payload",
         )
     u_uuid = _parse_uuid(user_id, "user ID")
-    b_uuid = _parse_uuid(buisness_id, "business ID")
+    b_uuid = _parse_uuid(business_id, "business ID")
 
     # Verify that the business exists
-    business = await buisness_service.get_business_by_id(
+    business = await business_service.get_business_by_id(
         business_id=b_uuid, session=session
     )
     if not business:
@@ -149,15 +151,20 @@ async def create_document(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to process PDF file: {str(e)}",
         )
-
+    splitted_docs = splitter.create_documents([extracted_text])
     data = AddDocument(
         original_filename=file.filename,
         file_type="pdf",
+        document_chunks=splitted_docs,
         extracted_text=extracted_text,
         embedding_status=EmbeddingStatus.pending,
     )
     new_document = await document_service.add_document(
         document=data, user_id=u_uuid, business_id=b_uuid, session=session
+    )
+    process_document.delay(
+        document_id=str(new_document.uid),
+        business_id=str(b_uuid),
     )
     return JSONResponse(
         content={

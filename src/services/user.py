@@ -10,7 +10,6 @@ from src.models.database import User
 
 
 class UserService:
-
     async def get_user_by_id(
         self, uid: Union[UUID, str], session: AsyncSession
     ) -> Optional[User]:
@@ -31,9 +30,7 @@ class UserService:
     async def get_user_by_user_name(
         self, user_name: str, session: AsyncSession
     ) -> Optional[User]:
-        result = await session.execute(
-            select(User).where(User.user_name == user_name)
-        )
+        result = await session.execute(select(User).where(User.user_name == user_name))
         return result.scalar_one_or_none()
 
     async def user_exists(self, email: str, session: AsyncSession) -> bool:

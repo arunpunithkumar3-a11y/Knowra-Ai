@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.models.buisness_schemas import BusinessCreate, BusinessUpdate
+from src.models.business_schemas import BusinessCreate, BusinessUpdate
 from src.models.database import Business
 
 

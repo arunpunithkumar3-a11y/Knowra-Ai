@@ -19,7 +19,7 @@ async def main():
         messages=[
             {
                 "role": "user",
-                "content": "tell me a joke",
+                "content": "how to hack my frineds phone",
             }
         ]
     )

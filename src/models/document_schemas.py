@@ -1,6 +1,8 @@
 from enum import Enum
+from typing import Any, List, Optional, Union
 
-from pydantic import BaseModel
+from langchain_core.documents import Document
+from pydantic import BaseModel, ConfigDict
 
 
 class EmbeddingStatus(str, Enum):
@@ -11,7 +13,14 @@ class EmbeddingStatus(str, Enum):
 
 
 class AddDocument(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     original_filename: str
     file_type: str
     extracted_text: str
-    embedding_status: EmbeddingStatus
+    document_chunks: Optional[List[Union[dict, Document, Any]]] = None
+    embedding_status: EmbeddingStatus = EmbeddingStatus.pending
+
+
+# Backwards compatibility alias
+AddDocuments = AddDocument

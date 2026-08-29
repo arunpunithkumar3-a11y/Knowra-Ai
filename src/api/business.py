@@ -5,11 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.dependency import verify_token
 from src.core.main import get_session
-from src.models.buisness_schemas import BusinessCreate, BusinessUpdate
-from src.services.buisness import BuisnessService
+from src.models.business_schemas import BusinessCreate, BusinessUpdate
+from src.services.business import BusinessService
 
-buisness_service = BuisnessService()
-buisness_router = APIRouter()
+business_service = BusinessService()
+business_router = APIRouter()
 
 
 def _parse_uuid(value: str, field_name: str = "ID") -> UUID:
@@ -22,26 +22,26 @@ def _parse_uuid(value: str, field_name: str = "ID") -> UUID:
         )
 
 
-@buisness_router.get("/buisness/{buisness_id}")
-async def get_buisness(
-    buisness_id: str,
+@business_router.get("/business/{business_id}")
+async def get_business(
+    business_id: str,
     session: AsyncSession = Depends(get_session),
     token_details: dict = Depends(verify_token),
 ):
-    b_uuid = _parse_uuid(buisness_id, "business ID")
-    buisness = await buisness_service.get_business_by_id(
+    b_uuid = _parse_uuid(business_id, "business ID")
+    business = await business_service.get_business_by_id(
         business_id=b_uuid, session=session
     )
-    if not buisness:
+    if not business:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Business not found",
         )
-    return buisness
+    return business
 
 
-@buisness_router.get("/all_buisness")
-async def get_all_buisness(
+@business_router.get("/all_business")
+async def get_all_business(
     session: AsyncSession = Depends(get_session),
     token_details: dict = Depends(verify_token),
 ):
@@ -52,14 +52,14 @@ async def get_all_buisness(
             detail="Invalid token payload",
         )
     u_uuid = _parse_uuid(user_id, "user ID")
-    all_buisness = await buisness_service.get_businesses_by_owner(
+    all_business = await business_service.get_businesses_by_owner(
         owner_id=u_uuid, session=session
     )
-    return all_buisness
+    return all_business
 
 
-@buisness_router.post("/create_buisness", status_code=status.HTTP_201_CREATED)
-async def create_buisness(
+@business_router.post("/create_business", status_code=status.HTTP_201_CREATED)
+async def create_business(
     data: BusinessCreate,
     session: AsyncSession = Depends(get_session),
     token_details: dict = Depends(verify_token),
@@ -76,44 +76,44 @@ async def create_buisness(
             detail="Business name is required",
         )
     u_uuid = _parse_uuid(user_id, "user ID")
-    new_buisness = await buisness_service.create_business(
+    new_business = await business_service.create_business(
         business_data=data, owner_id=u_uuid, session=session
     )
-    return new_buisness
+    return new_business
 
 
-@buisness_router.put("/update_buisness/{buisness_id}")
-async def update_buisness(
-    buisness_id: str,
+@business_router.put("/update_business/{business_id}")
+async def update_business(
+    business_id: str,
     data: BusinessUpdate,
     session: AsyncSession = Depends(get_session),
     token_details: dict = Depends(verify_token),
 ):
-    b_uuid = _parse_uuid(buisness_id, "business ID")
-    buisness = await buisness_service.update_business(
+    b_uuid = _parse_uuid(business_id, "business ID")
+    business = await business_service.update_business(
         business_id=b_uuid, business_data=data, session=session
     )
-    if not buisness:
+    if not business:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Business does not exist",
         )
-    return buisness
+    return business
 
 
-@buisness_router.delete("/delete_buisness/{buisness_id}")
-async def deleted_buisness(
-    buisness_id: str,
+@business_router.delete("/delete_business/{business_id}")
+async def deleted_business(
+    business_id: str,
     session: AsyncSession = Depends(get_session),
     token_details: dict = Depends(verify_token),
 ):
-    b_uuid = _parse_uuid(buisness_id, "business ID")
-    buisness = await buisness_service.delete_business(
+    b_uuid = _parse_uuid(business_id, "business ID")
+    business = await business_service.delete_business(
         business_id=b_uuid, session=session
     )
-    if not buisness:
+    if not business:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Business does not exist",
         )
-    return {"message": "Business deleted successfully", "buisness_id": str(b_uuid)}
+    return {"message": "Business deleted successfully", "business_id": str(b_uuid)}

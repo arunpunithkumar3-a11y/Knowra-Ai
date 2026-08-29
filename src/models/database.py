@@ -3,8 +3,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import List, Optional
 
-from pgvector.sqlalchemy import Vector
-from sqlalchemy import Column, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Column, ForeignKey, Text
 from sqlalchemy.dialects import postgresql as pg
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -72,16 +71,8 @@ class User(SQLModel, table=True):
         },
     )
 
-    uploaded_documents: List["Document"] = Relationship(
+    uploaded_documents: List["Documents"] = Relationship(
         back_populates="uploader",
-        sa_relationship_kwargs={
-            "lazy": "selectin",
-            "cascade": "all, delete-orphan",
-        },
-    )
-
-    chats: List["Chat"] = Relationship(
-        back_populates="user",
         sa_relationship_kwargs={
             "lazy": "selectin",
             "cascade": "all, delete-orphan",
@@ -145,15 +136,7 @@ class Business(SQLModel, table=True):
         back_populates="businesses",
     )
 
-    documents: List["Document"] = Relationship(
-        back_populates="business",
-        sa_relationship_kwargs={
-            "lazy": "selectin",
-            "cascade": "all, delete-orphan",
-        },
-    )
-
-    chats: List["Chat"] = Relationship(
+    documents: List["Documents"] = Relationship(
         back_populates="business",
         sa_relationship_kwargs={
             "lazy": "selectin",
@@ -167,7 +150,7 @@ class Business(SQLModel, table=True):
 # ============================================================
 
 
-class Document(SQLModel, table=True):
+class Documents(SQLModel, table=True):
     __tablename__ = "documents"
 
     uid: uuid.UUID = Field(
@@ -218,7 +201,13 @@ class Document(SQLModel, table=True):
             nullable=True,
         ),
     )
-
+    document_chunks: Optional[List[dict]] = Field(
+        default=None,
+        sa_column=Column(
+            pg.JSONB,
+            nullable=True,
+        ),
+    )
     embedding_status: EmbeddingStatus = Field(
         default=EmbeddingStatus.pending,
     )
@@ -236,139 +225,6 @@ class Document(SQLModel, table=True):
         back_populates="uploaded_documents",
     )
 
-    chunks: List["DocumentChunk"] = Relationship(
-        back_populates="document",
-        sa_relationship_kwargs={
-            "lazy": "selectin",
-            "cascade": "all, delete-orphan",
-        },
-    )
 
-
-class DocumentChunk(SQLModel, table=True):
-    __tablename__ = "document_chunks"
-
-    uid: uuid.UUID = Field(
-        sa_column=Column(
-            pg.UUID(as_uuid=True),
-            primary_key=True,
-            default=uuid.uuid4,
-        )
-    )
-
-    document_id: uuid.UUID = Field(
-        sa_column=Column(
-            pg.UUID(as_uuid=True),
-            ForeignKey(
-                "documents.uid",
-                ondelete="CASCADE",
-            ),
-            nullable=False,
-            index=True,
-        )
-    )
-
-    chunk_index: int = Field(
-        nullable=False,
-    )
-
-    content: str = Field(
-        sa_column=Column(
-            Text,
-            nullable=False,
-        )
-    )
-
-    embedding: Optional[List[float]] = Field(
-        default=None,
-        sa_column=Column(
-            Vector(1536),
-            nullable=True,
-        ),
-    )
-
-    chunk_metadata: Optional[dict] = Field(
-        default=None,
-        sa_column=Column(
-            "metadata",
-            pg.JSONB,
-            nullable=True,
-        ),
-    )
-
-    created_at: datetime = Field(
-        default_factory=utc_now,
-        sa_column_kwargs={"server_default": "now()"},
-    )
-
-    document: Optional["Document"] = Relationship(
-        back_populates="chunks",
-    )
-
-    __table_args__ = (
-        UniqueConstraint(
-            "document_id",
-            "chunk_index",
-            name="uq_document_chunk_index",
-        ),
-    )
-
-
-class Chat(SQLModel, table=True):
-    __tablename__ = "chats"
-
-    uid: uuid.UUID = Field(
-        sa_column=Column(
-            pg.UUID(as_uuid=True),
-            primary_key=True,
-            default=uuid.uuid4,
-        )
-    )
-
-    user_id: Optional[uuid.UUID] = Field(
-        default=None,
-        sa_column=Column(
-            pg.UUID(as_uuid=True),
-            ForeignKey(
-                "users.uid",
-                ondelete="SET NULL",
-            ),
-            nullable=True,
-            index=True,
-        ),
-    )
-
-    business_id: uuid.UUID = Field(
-        sa_column=Column(
-            pg.UUID(as_uuid=True),
-            ForeignKey(
-                "businesses.uid",
-                ondelete="CASCADE",
-            ),
-            nullable=False,
-            index=True,
-        )
-    )
-
-    thread_id: str = Field(
-        index=True,
-        max_length=255,
-    )
-
-    chat_title: Optional[str] = Field(
-        default=None,
-        max_length=255,
-    )
-
-    created_at: datetime = Field(
-        default_factory=utc_now,
-        sa_column_kwargs={"server_default": "now()"},
-    )
-
-    user: Optional["User"] = Relationship(
-        back_populates="chats",
-    )
-
-    business: Optional["Business"] = Relationship(
-        back_populates="chats",
-    )
+# Backwards compatibility alias
+Document = Documents
