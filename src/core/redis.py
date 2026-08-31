@@ -1,15 +1,6 @@
-from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 from redis.asyncio import Redis
 
 from src.config import configure
-
-checkpointer = AsyncRedisSaver(
-    redis_url=configure.REDIS_URL,
-    ttl={
-        "default_ttl": 30,
-        "refresh_on_read": True,
-    },
-)
 
 redis_client = Redis.from_url(
     configure.REDIS_URL,
@@ -35,5 +26,9 @@ async def token_in_blacklist(jti: str) -> bool:
     return exists == 1
 
 
-async def setup_memory() -> None:
-    await checkpointer.setup()
+async def close_memory() -> None:
+    try:
+        await redis_client.aclose()
+    except Exception:
+        pass
+

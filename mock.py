@@ -11,7 +11,7 @@ from nemoguardrails import LLMRails, RailsConfig
 
 
 async def main():
-    config = RailsConfig.from_path("src/agent/guardrails")
+    config = RailsConfig.from_path("src/knowra/guardrails")
 
     rails = LLMRails(config)
 

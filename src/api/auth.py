@@ -1,9 +1,11 @@
 from datetime import timedelta
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.dependency import verify_any_token, verify_refresh_token
 from src.core.main import get_session
 from src.core.password import verify_password
 from src.core.redis import add_jti_to_blacklist
@@ -71,8 +73,47 @@ async def user_login(
     )
 
 
+@auth_router.post("/refresh")
+async def refresh_token_endpoint(
+    token_details: dict = Depends(verify_refresh_token),
+):
+    user_data = token_details.get("user_data", {})
+    if not user_data:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+        )
+    old_jti = token_details.get("jti")
+    if old_jti:
+        await add_jti_to_blacklist(old_jti)
+
+    new_access_token = create_access_token(data=user_data)
+    new_refresh_token = create_access_token(
+        data=user_data,
+        refresh=True,
+        expire=timedelta(days=REFRESH_TOKEN_EXPIRY_DAYS),
+    )
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "access_token": new_access_token,
+            "refresh_token": new_refresh_token,
+        },
+    )
+
+
+@auth_router.post("/logout")
+async def user_logout(
+    token_details: dict = Depends(verify_any_token),
+):
+    jti = token_details.get("jti")
+    if jti:
+        await add_jti_to_blacklist(jti)
+    return {"message": "Logout successful"}
+
+
 @auth_router.post("/logout/{jti}")
-async def user_logout(jti: str):
+async def user_logout_by_param(jti: str):
     if not jti or not jti.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

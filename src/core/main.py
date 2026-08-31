@@ -20,8 +20,7 @@ async_session_maker = async_sessionmaker(
 
 
 async def init_db():
-    # Importing models so SQLModel metadata registry knows about them before create_all
-    # NOTE: In production, use Alembic migrations instead of create_all
+    from src.models.database import Business, Documents, User
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
 

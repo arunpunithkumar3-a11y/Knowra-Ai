@@ -1,10 +1,11 @@
 from .agent import (
     AgentState,
+    agent_node,
     build_graph,
-    chat,
-    graph,
-    make_config,
-    stream,
+    search_knowledge_base,
+    should_continue,
+    stream_chat,
+    tools,
 )
 from .pipeline import RAGPipeline, rag_pipeline
 from .prompt import (
@@ -18,7 +19,6 @@ from .retrievers import (
     retriever,
     rrf,
 )
-from .tools import create_rag_tools
 
 __all__ = [
     "RAGPipeline",
@@ -30,12 +30,12 @@ __all__ = [
     "CHATBOT_SYSTEM_PROMPT",
     "REACT_AGENT_SYSTEM_PROMPT",
     "get_rag_prompt",
-    "create_rag_tools",
-    "chat",
-    "stream",
-    "make_config",
-    "graph",
+    "stream_chat",
     "build_graph",
     "AgentState",
+    "agent_node",
+    "should_continue",
+    "tools",
+    "search_knowledge_base",
 ]
 

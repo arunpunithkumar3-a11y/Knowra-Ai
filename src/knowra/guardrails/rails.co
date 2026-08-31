@@ -304,39 +304,3 @@ define flow off topic scope flow
   bot steer to business domain
 
 
-# ------------------------------------------------------------------------------
-# 11. Legitimate Business & Document Intelligence Flows (Positive Domain)
-# ------------------------------------------------------------------------------
-define user ask about documents
-  "what does this document say"
-  "summarize this document"
-  "summarize the document"
-  "what is in this document"
-  "what does the document contain"
-  "explain this document"
-  "extract key metrics from the uploaded report"
-  "compare these two business agreements"
-  "find the compliance section in this policy document"
-  "what are the key takeaways from the quarterly report"
-
-define bot handle document query
-  "I will analyze the document and provide the relevant insights, summary, or extracted data for you."
-
-define user ask business operations
-  "how can I optimize our team workflow"
-  "summarize this company update"
-  "help me structure our quarterly business review"
-  "what are the key performance indicators mentioned here"
-  "analyze the revenue trends in this data"
-
-define bot handle business operations
-  "I can help you review, analyze, and structure your business operational information."
-
-define flow document analysis flow
-  user ask about documents
-  bot handle document query
-
-define flow business analysis flow
-  user ask business operations
-  bot handle business operations
-

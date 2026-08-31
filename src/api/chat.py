@@ -67,3 +67,89 @@ async def chat(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@agent_router.post("/widget/{public_key}")
+async def widget_chat(
+    public_key: str,
+    data: ChatRequest,
+    session=Depends(get_session),
+):
+    business_service = BuisnessService()
+
+    business = await business_service.get_business_by_public_key(
+        public_key=public_key,
+        session=session,
+    )
+
+    if not business:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Business not found",
+        )
+
+    return StreamingResponse(
+        stream_chat(
+            message=data.message,
+            thread_id=data.thread_id,
+            business_id=str(business.uid),
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@agent_router.get("/history/{thread_id}")
+async def get_chat_history(thread_id: str):
+    """
+    Get message history for an ongoing chat thread from PostgreSQL checkpointer.
+    """
+    from langchain_core.messages import AIMessage, HumanMessage
+    from src.knowra.agent.graph import build_graph
+
+    graph = await build_graph()
+    state = await graph.aget_state({"configurable": {"thread_id": thread_id}})
+    messages = state.values.get("messages", []) if state and state.values else []
+
+    formatted = []
+    for msg in messages:
+        if isinstance(msg, HumanMessage):
+            formatted.append({"role": "user", "content": msg.content})
+        elif isinstance(msg, AIMessage) and msg.content:
+            formatted.append({"role": "assistant", "content": msg.content})
+
+    return {
+        "thread_id": thread_id,
+        "total_messages": len(formatted),
+        "messages": formatted,
+    }
+
+
+@agent_router.delete("/history/{thread_id}")
+async def clear_chat_history(thread_id: str):
+    """
+    Clear chat history for a thread from PostgreSQL checkpointer.
+    """
+    from src.core.postgres import get_checkpointer
+
+    try:
+        checkpointer = await get_checkpointer()
+        if checkpointer:
+            if hasattr(checkpointer, "adelete"):
+                await checkpointer.adelete({"configurable": {"thread_id": thread_id}})
+            elif hasattr(checkpointer, "adelete_thread"):
+                await checkpointer.adelete_thread(thread_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to clear chat history: {str(e)}",
+        )
+
+    return {
+        "status": "success",
+        "message": f"Chat history for thread '{thread_id}' cleared successfully.",
+    }

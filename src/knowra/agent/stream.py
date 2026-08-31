@@ -1,8 +1,11 @@
+import logging
 from typing import AsyncGenerator
 
 from langchain_core.messages import HumanMessage
 
-from src.knowra.agent.graph import graph
+from src.knowra.agent.graph import build_graph
+
+logger = logging.getLogger(__name__)
 
 
 async def stream_chat(
@@ -11,6 +14,10 @@ async def stream_chat(
     business_id: str,
 ) -> AsyncGenerator[str, None]:
 
+    # Guardrails check
+
+    # Agent streaming
+    graph = await build_graph()
     config = {
         "configurable": {
             "thread_id": thread_id,
@@ -27,21 +34,27 @@ async def stream_chat(
             config=config,
             version="v2",
         ):
-            if event.get("event") != "on_chat_model_stream":
-                continue
+            event_type = event.get("event")
+            node_name = event.get("metadata", {}).get("langgraph_node")
 
-            chunk = event.get("data", {}).get("chunk")
+            if event_type == "on_chat_model_stream" and node_name == "agent":
+                chunk = event.get("data", {}).get("chunk")
+                if chunk:
+                    content = getattr(chunk, "content", None)
+                    if content and isinstance(content, str):
+                        yield f"data: {content}\n\n"
 
-            if not chunk:
-                continue
+            elif event_type == "on_chain_end" and event.get("name") == "guard":
+                output = event.get("data", {}).get("output", {})
+                messages = output.get("messages", [])
+                for msg in messages:
+                    content = getattr(msg, "content", None)
+                    if content and isinstance(content, str):
+                        yield f"data: {content}\n\n"
 
-            content = getattr(chunk, "content", None)
+        yield "data: [DONE]\n\n"
 
-            if content:
-                yield f"data: {content}\n\n"
-
-            yield "data: [DONE]\n\n"
-
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error in stream_chat: {e}", exc_info=True)
         yield "event: error\n"
         yield "data: Internal server error\n\n"

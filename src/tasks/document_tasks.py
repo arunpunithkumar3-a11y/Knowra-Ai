@@ -3,9 +3,9 @@ import asyncio
 from celery import Celery
 from langchain_core.documents import Document
 
-from src.knowra.retrievers import retriever
 from src.config import configure
-from src.core.main import get_session
+from src.core.main import async_session_maker
+from src.knowra.retrievers import retriever
 from src.models.database import EmbeddingStatus
 from src.services.document import document_service
 
@@ -39,7 +39,7 @@ async def _process_document(
     document_id: str,
     business_id: str,
 ):
-    async with get_session() as session:
+    async with async_session_maker() as session:
         # ----------------------------------------------------
         # Fetch document
         # ----------------------------------------------------
@@ -200,7 +200,7 @@ def process_document(
 
             async def mark_failed():
 
-                async with get_session() as session:
+                async with async_session_maker() as session:
                     document = await document_service.get_document_by_id(
                         id=document_id,
                         session=session,

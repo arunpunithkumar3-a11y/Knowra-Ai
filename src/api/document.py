@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.dependency import verify_token
 from src.core.main import get_session
+from src.knowra.retrievers import retriever
 from src.models.document_schemas import AddDocument, EmbeddingStatus
 from src.services.business import BusinessService
 from src.services.document import DocumentService
@@ -38,12 +39,29 @@ async def get_document(
     session: AsyncSession = Depends(get_session),
     token_details: dict = Depends(verify_token),
 ):
+    user_id = token_details.get("user_data", {}).get("user_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+        )
+    u_uuid = _parse_uuid(user_id, "user ID")
     doc_uuid = _parse_uuid(document_id, "document ID")
     document = await document_service.get_document_by_id(id=doc_uuid, session=session)
     if not document:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found",
+        )
+
+    # Verify ownership
+    business = await business_service.get_business_by_id(
+        business_id=document.business_id, session=session
+    )
+    if not business or (business.owner_id != u_uuid and document.uploaded_by != u_uuid):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this document",
         )
     return document
 
@@ -72,7 +90,29 @@ async def get_document_by_business(
     session: AsyncSession = Depends(get_session),
     token_details: dict = Depends(verify_token),
 ):
+    user_id = token_details.get("user_data", {}).get("user_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+        )
+    u_uuid = _parse_uuid(user_id, "user ID")
     b_uuid = _parse_uuid(business_id, "business ID")
+
+    business = await business_service.get_business_by_id(
+        business_id=b_uuid, session=session
+    )
+    if not business:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Business not found",
+        )
+    if business.owner_id != u_uuid:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this business's documents",
+        )
+
     documents = await document_service.get_documents_by_business_id(
         business_id=b_uuid, session=session
     )
@@ -97,7 +137,7 @@ async def create_document(
     u_uuid = _parse_uuid(user_id, "user ID")
     b_uuid = _parse_uuid(business_id, "business ID")
 
-    # Verify that the business exists
+    # Verify that the business exists and belongs to current user
     business = await business_service.get_business_by_id(
         business_id=b_uuid, session=session
     )
@@ -105,6 +145,11 @@ async def create_document(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Business not found",
+        )
+    if business.owner_id != u_uuid:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to upload documents to this business",
         )
 
     if not file or not file.filename:
@@ -125,6 +170,11 @@ async def create_document(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Uploaded file is empty",
+            )
+        if not contents.startswith(b"%PDF"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid PDF file structure",
             )
         pdf_stream = io.BytesIO(contents)
         reader = PdfReader(pdf_stream)
@@ -181,14 +231,41 @@ async def deleted_document(
     session: AsyncSession = Depends(get_session),
     token_details: dict = Depends(verify_token),
 ):
+    user_id = token_details.get("user_data", {}).get("user_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+        )
+    u_uuid = _parse_uuid(user_id, "user ID")
     doc_uuid = _parse_uuid(document_id, "document ID")
-    document = await document_service.delete_document(
-        document_id=doc_uuid, session=session
+
+    existing_doc = await document_service.get_document_by_id(
+        id=doc_uuid, session=session
     )
-    if not document:
+    if not existing_doc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found",
         )
+
+    business = await business_service.get_business_by_id(
+        business_id=existing_doc.business_id, session=session
+    )
+    if not business or (business.owner_id != u_uuid and existing_doc.uploaded_by != u_uuid):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to delete this document",
+        )
+
+    document = await document_service.delete_document(
+        document_id=doc_uuid, session=session
+    )
+
+    # Clean up vector database points
+    retriever.delete_document_vectors(
+        business_id=existing_doc.business_id,
+        document_id=existing_doc.uid,
+    )
 
     return {"message": "Document deleted successfully", "document_id": str(doc_uuid)}

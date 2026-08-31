@@ -1,5 +1,4 @@
-from langchain_nvidia_ai_endpoints import NVIDIARerank
-from langchain_openai import OpenAIEmbeddings
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -53,8 +52,32 @@ child_splitter = RecursiveCharacterTextSplitter(
     chunk_overlap=configure.CHILD_CHUNK_OVERLAP,
 )
 
-reranker = NVIDIARerank(
-    model=configure.RERANKER_MODEL,
+
+class _LazyReranker:
+    def __init__(self):
+        self._instance = None
+
+    def _get_instance(self):
+        if self._instance is None:
+            from langchain_nvidia_ai_endpoints import NVIDIARerank
+
+            self._instance = NVIDIARerank(
+                model=configure.RERANKER_MODEL,
+                api_key=configure.NVIDIA_API_KEY,
+                top_n=configure.TOP_K_RERANK,
+            )
+        return self._instance
+
+    def compress_documents(self, *args, **kwargs):
+        return self._get_instance().compress_documents(*args, **kwargs)
+
+
+reranker = _LazyReranker()
+
+
+safety_llm = ChatOpenAI(
+    model="nvidia/nemotron-3.5-content-safety",
+    base_url="https://integrate.api.nvidia.com/v1",
     api_key=configure.NVIDIA_API_KEY,
-    top_n=configure.TOP_K_RERANK,
+    temperature=0,
 )

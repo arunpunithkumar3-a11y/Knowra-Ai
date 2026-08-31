@@ -1,9 +1,10 @@
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import AIMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from src.config import configure
+from src.config import configure, safety_llm
 from src.knowra.agent.state import AgentState
 from src.knowra.agent.tools import tools
+from src.knowra.guardrails import get_rails
 from src.knowra.prompt import REACT_AGENT_SYSTEM_PROMPT
 
 llm = ChatOpenAI(
@@ -32,3 +33,48 @@ async def agent_node(state: AgentState):
     response = await model_with_tools.ainvoke(messages)
 
     return {"messages": [response]}
+
+
+async def safety_node(state: AgentState):
+    user_query = str(state["messages"][-1].content)
+    response = await safety_llm.ainvoke(user_query)
+    result = str(response.content).strip().lower()
+
+    if "user safety: unsafe" in result:
+        return {"safety": "unsafe"}
+
+    return {"safety": "safe"}
+
+
+def should_continue(state: AgentState):
+
+    last_message = state["messages"][-1]
+
+    if isinstance(last_message, AIMessage) and last_message.tool_calls:
+        return "tools"
+
+    return "end"
+
+
+def safe_check_node(state: AgentState):
+    node = state.get("safety", "safe")
+    if node == "unsafe":
+        return "unsafe"
+    return "safe"
+
+
+async def guard(state: AgentState):
+    user_query = state["messages"][-1].content
+
+    rails = get_rails()
+
+    response = await rails.generate_async(
+        messages=[
+            {
+                "role": "user",
+                "content": user_query,
+            }
+        ]
+    )
+
+    return {"messages": [AIMessage(content=response["content"])]}

@@ -131,3 +131,8 @@ class BuisnessService:
             await session.delete(business)
             await session.commit()
         return business
+
+
+# Aliases
+BusinessService = BuisnessService
+business_service = BusinessService()

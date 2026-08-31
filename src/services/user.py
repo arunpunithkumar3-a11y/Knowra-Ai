@@ -75,3 +75,6 @@ class UserService:
     ) -> list[User]:
         result = await session.execute(select(User).offset(skip).limit(limit))
         return list(result.scalars().all())
+
+
+user_service = UserService()

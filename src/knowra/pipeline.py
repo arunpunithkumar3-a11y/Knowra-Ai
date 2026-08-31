@@ -6,7 +6,7 @@ from langchain_community.retrievers import BM25Retriever
 from langchain_core.documents import Document
 
 from src.config import configure, reranker
-from src.core.main import get_session
+from src.core.main import async_session_maker
 from src.knowra.retrievers import retriever, rrf
 from src.services.document import document_service
 
@@ -42,9 +42,9 @@ class RAGPipeline:
         sparse_docs: List[Document] = []
 
         try:
-            async with get_session() as session:
-                doc = await document_service.get_Documentss_by_business_id(
-                    buisness_id=business_id, session=session
+            async with async_session_maker() as session:
+                doc = await document_service.get_documents_by_business_id(
+                    business_id=business_id, session=session
                 )
             if doc:
                 doc_list = doc if isinstance(doc, list) else [doc]

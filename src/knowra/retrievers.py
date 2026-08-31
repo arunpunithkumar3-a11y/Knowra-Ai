@@ -83,8 +83,7 @@ class SentenceWindowParentChildRetriever:
         # The parent window is also stored inside Qdrant metadata,
         # so retrieval still works after a restart.
         self.parents: Dict[str, Dict[str, Document]] = {}
-
-        self._initialize_collection()
+        self._collection_initialized = False
 
     # ============================================================
     # QDRANT COLLECTION
@@ -92,21 +91,90 @@ class SentenceWindowParentChildRetriever:
 
     def _initialize_collection(self) -> None:
         """
-        Create the Qdrant collection if it doesn't already exist.
+        Create the Qdrant collection and payload indices if they don't already exist.
         """
+        if self._collection_initialized:
+            return
 
-        if not self.qdrant_client.collection_exists(self.collection_name):
-            self.qdrant_client.create_collection(
-                collection_name=self.collection_name,
-                vectors_config=VectorParams(
-                    size=self.vector_size,
-                    distance=Distance.COSINE,
-                ),
+        try:
+            if not self.qdrant_client.collection_exists(self.collection_name):
+                self.qdrant_client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=VectorParams(
+                        size=self.vector_size,
+                        distance=Distance.COSINE,
+                    ),
+                )
+
+                logger.info(
+                    "Created Qdrant collection '%s'.",
+                    self.collection_name,
+                )
+
+            # Ensure payload indices exist for multi-tenant filtering and deletion
+            for field in ["metadata.business_id", "metadata.document_id"]:
+                try:
+                    self.qdrant_client.create_payload_index(
+                        collection_name=self.collection_name,
+                        field_name=field,
+                        field_schema="keyword",
+                    )
+                except Exception:
+                    pass
+
+            self._collection_initialized = True
+        except Exception as e:
+            logger.warning(
+                "Could not initialize Qdrant collection '%s': %s",
+                self.collection_name,
+                e,
             )
 
+    def delete_document_vectors(
+        self,
+        business_id: Union[str, uuid.UUID],
+        document_id: Union[str, uuid.UUID],
+    ) -> None:
+        """
+        Delete all child vectors and cached parent chunks associated with a specific document.
+        """
+        biz_key = str(business_id)
+        doc_key = str(document_id)
+
+        if biz_key in self.parents:
+            self.parents[biz_key] = {
+                pid: doc
+                for pid, doc in self.parents[biz_key].items()
+                if doc.metadata.get("document_id") != doc_key
+            }
+
+        try:
+            doc_filter = Filter(
+                must=[
+                    FieldCondition(
+                        key="metadata.business_id",
+                        match=MatchValue(value=biz_key),
+                    ),
+                    FieldCondition(
+                        key="metadata.document_id",
+                        match=MatchValue(value=doc_key),
+                    ),
+                ]
+            )
+            self.qdrant_client.delete(
+                collection_name=self.collection_name,
+                points_selector=doc_filter,
+            )
             logger.info(
-                "Created Qdrant collection '%s'.",
-                self.collection_name,
+                "Deleted vectors for document '%s' in business '%s'.",
+                doc_key,
+                biz_key,
+            )
+        except Exception as e:
+            logger.exception(
+                "Failed to delete vectors for document '%s': %s",
+                doc_key,
+                e,
             )
 
     # ============================================================
@@ -117,6 +185,7 @@ class SentenceWindowParentChildRetriever:
         """
         Returns the LangChain Qdrant vector store.
         """
+        self._initialize_collection()
 
         return QdrantVectorStore(
             client=self.qdrant_client,

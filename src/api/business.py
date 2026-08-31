@@ -28,6 +28,13 @@ async def get_business(
     session: AsyncSession = Depends(get_session),
     token_details: dict = Depends(verify_token),
 ):
+    user_id = token_details.get("user_data", {}).get("user_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+        )
+    u_uuid = _parse_uuid(user_id, "user ID")
     b_uuid = _parse_uuid(business_id, "business ID")
     business = await business_service.get_business_by_id(
         business_id=b_uuid, session=session
@@ -36,6 +43,11 @@ async def get_business(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Business not found",
+        )
+    if business.owner_id != u_uuid:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this business",
         )
     return business
 
@@ -89,15 +101,32 @@ async def update_business(
     session: AsyncSession = Depends(get_session),
     token_details: dict = Depends(verify_token),
 ):
+    user_id = token_details.get("user_data", {}).get("user_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+        )
+    u_uuid = _parse_uuid(user_id, "user ID")
     b_uuid = _parse_uuid(business_id, "business ID")
-    business = await business_service.update_business(
-        business_id=b_uuid, business_data=data, session=session
+
+    existing_business = await business_service.get_business_by_id(
+        business_id=b_uuid, session=session
     )
-    if not business:
+    if not existing_business:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Business does not exist",
         )
+    if existing_business.owner_id != u_uuid:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this business",
+        )
+
+    business = await business_service.update_business(
+        business_id=b_uuid, business_data=data, session=session
+    )
     return business
 
 
@@ -107,13 +136,50 @@ async def deleted_business(
     session: AsyncSession = Depends(get_session),
     token_details: dict = Depends(verify_token),
 ):
+    user_id = token_details.get("user_data", {}).get("user_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+        )
+    u_uuid = _parse_uuid(user_id, "user ID")
     b_uuid = _parse_uuid(business_id, "business ID")
-    business = await business_service.delete_business(
+
+    existing_business = await business_service.get_business_by_id(
         business_id=b_uuid, session=session
     )
-    if not business:
+    if not existing_business:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Business does not exist",
         )
+    if existing_business.owner_id != u_uuid:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this business",
+        )
+
+    await business_service.delete_business(
+        business_id=b_uuid, session=session
+    )
     return {"message": "Business deleted successfully", "business_id": str(b_uuid)}
+
+
+@business_router.get("/widget/info/{public_key}")
+async def get_widget_info(
+    public_key: str,
+    session: AsyncSession = Depends(get_session),
+):
+    business = await business_service.get_business_by_public_key(
+        public_key=public_key, session=session
+    )
+    if not business:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Business not found",
+        )
+    return {
+        "business_name": business.business_name,
+        "welcome_message": f"Hi! How can I help you today?",
+        "primary_color": "#2563eb",
+    }
