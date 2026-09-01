@@ -1,3 +1,5 @@
+import re
+
 from langchain_core.messages import AIMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
@@ -77,4 +79,13 @@ async def guard(state: AgentState):
         ]
     )
 
-    return {"messages": [AIMessage(content=response["content"])]}
+    return {
+        "messages": [AIMessage(content=clean_guardrail_response(response["content"]))]
+    }
+
+
+def clean_guardrail_response(response: str) -> str:
+    # Remove <think>...</think>
+    response = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL)
+
+    return response.strip()
