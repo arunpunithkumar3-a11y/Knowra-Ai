@@ -1,10 +1,16 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.dependency import verify_token
 from src.core.main import get_session
+from src.exceptions import (
+    AuthenticationError,
+    AuthorizationError,
+    NotFoundError,
+    ValidationError,
+)
 from src.models.business_schemas import BusinessCreate, BusinessUpdate
 from src.services.business import BusinessService
 
@@ -16,10 +22,7 @@ def _parse_uuid(value: str, field_name: str = "ID") -> UUID:
     try:
         return UUID(str(value))
     except (ValueError, AttributeError):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid {field_name} format",
-        )
+        raise ValidationError(detail=f"Invalid {field_name}: {value}")
 
 
 @business_router.get("/business/{business_id}")
@@ -30,25 +33,16 @@ async def get_business(
 ):
     user_id = token_details.get("user_data", {}).get("user_id")
     if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload",
-        )
+        raise AuthenticationError(detail="Invalid token payload")
     u_uuid = _parse_uuid(user_id, "user ID")
     b_uuid = _parse_uuid(business_id, "business ID")
     business = await business_service.get_business_by_id(
         business_id=b_uuid, session=session
     )
     if not business:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Business not found",
-        )
+        raise NotFoundError(detail="Business does not exist")
     if business.owner_id != u_uuid:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have access to this business",
-        )
+        raise AuthorizationError(detail="You do not have access to this business")
     return business
 
 
@@ -59,10 +53,7 @@ async def get_all_business(
 ):
     user_id = token_details.get("user_data", {}).get("user_id")
     if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload",
-        )
+        raise AuthenticationError(detail="Invalid token payload")
     u_uuid = _parse_uuid(user_id, "user ID")
     all_business = await business_service.get_businesses_by_owner(
         owner_id=u_uuid, session=session
@@ -78,15 +69,9 @@ async def create_business(
 ):
     user_id = token_details.get("user_data", {}).get("user_id")
     if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload",
-        )
+        raise AuthenticationError(detail="Invalid token payload")
     if not data.business_name or not data.business_name.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Business name is required",
-        )
+        raise ValidationError(detail="Business name is required")
     u_uuid = _parse_uuid(user_id, "user ID")
     new_business = await business_service.create_business(
         business_data=data, owner_id=u_uuid, session=session
@@ -103,10 +88,7 @@ async def update_business(
 ):
     user_id = token_details.get("user_data", {}).get("user_id")
     if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload",
-        )
+        raise AuthenticationError(detail="Invalid token payload")
     u_uuid = _parse_uuid(user_id, "user ID")
     b_uuid = _parse_uuid(business_id, "business ID")
 
@@ -114,15 +96,10 @@ async def update_business(
         business_id=b_uuid, session=session
     )
     if not existing_business:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Business does not exist",
-        )
+        raise NotFoundError(detail="Business does not exist")
+
     if existing_business.owner_id != u_uuid:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have access to this business",
-        )
+        raise AuthorizationError(detail="You do not have access to this business")
 
     business = await business_service.update_business(
         business_id=b_uuid, business_data=data, session=session
@@ -138,10 +115,7 @@ async def deleted_business(
 ):
     user_id = token_details.get("user_data", {}).get("user_id")
     if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload",
-        )
+        raise AuthenticationError(detail="Invalid token payload")
     u_uuid = _parse_uuid(user_id, "user ID")
     b_uuid = _parse_uuid(business_id, "business ID")
 
@@ -149,19 +123,12 @@ async def deleted_business(
         business_id=b_uuid, session=session
     )
     if not existing_business:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Business does not exist",
-        )
-    if existing_business.owner_id != u_uuid:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have access to this business",
-        )
+        raise NotFoundError(detail="Business does not exist")
 
-    await business_service.delete_business(
-        business_id=b_uuid, session=session
-    )
+    if existing_business.owner_id != u_uuid:
+        raise AuthorizationError(detail="You do not have access to this business")
+
+    await business_service.delete_business(business_id=b_uuid, session=session)
     return {"message": "Business deleted successfully", "business_id": str(b_uuid)}
 
 
@@ -174,12 +141,11 @@ async def get_widget_info(
         public_key=public_key, session=session
     )
     if not business:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Business not found",
+        raise NotFoundError(
+            detail="Business with the provided public key does not exist"
         )
     return {
         "business_name": business.business_name,
-        "welcome_message": f"Hi! How can I help you today?",
+        "welcome_message": "Hi! How can I help you today?",
         "primary_color": "#2563eb",
     }

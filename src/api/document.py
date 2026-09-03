@@ -9,11 +9,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.dependency import verify_token
 from src.core.main import get_session
+from src.exceptions import (
+    AuthenticationError,
+    AuthorizationError,
+    NotFoundError,
+    ValidationError,
+)
 from src.knowra.retrievers import retriever
 from src.models.document_schemas import AddDocument, EmbeddingStatus
 from src.services.business import BusinessService
 from src.services.document import DocumentService
-from src.tasks.document_tasks import process_document
+from src.celery_tasks import process_document
 
 document_router = APIRouter()
 document_service = DocumentService()
@@ -27,10 +33,7 @@ def _parse_uuid(value: str, field_name: str = "ID") -> UUID:
     try:
         return UUID(str(value))
     except (ValueError, AttributeError):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid {field_name} format",
-        )
+        raise ValidationError(detail=f"Invalid {field_name} format")
 
 
 @document_router.get("/document/{document_id}")
@@ -41,28 +44,19 @@ async def get_document(
 ):
     user_id = token_details.get("user_data", {}).get("user_id")
     if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload",
-        )
+        raise AuthenticationError(detail="Invalid token payload")
     u_uuid = _parse_uuid(user_id, "user ID")
     doc_uuid = _parse_uuid(document_id, "document ID")
     document = await document_service.get_document_by_id(id=doc_uuid, session=session)
     if not document:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found",
-        )
+        raise NotFoundError(detail="Document not found")
 
     # Verify ownership
     business = await business_service.get_business_by_id(
         business_id=document.business_id, session=session
     )
     if not business or (business.owner_id != u_uuid and document.uploaded_by != u_uuid):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have access to this document",
-        )
+        raise AuthorizationError(detail="You do not have access to this document")
     return document
 
 
@@ -73,10 +67,7 @@ async def get_document_by_user(
 ):
     user_id = token_details.get("user_data", {}).get("user_id")
     if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload",
-        )
+        raise AuthenticationError(detail="Invalid token payload")
     u_uuid = _parse_uuid(user_id, "user ID")
     all_document = await document_service.get_documents_by_uploader(
         uploader_id=u_uuid, session=session
@@ -103,15 +94,9 @@ async def get_document_by_business(
         business_id=b_uuid, session=session
     )
     if not business:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Business not found",
-        )
+        raise NotFoundError(detail="Business not found")
     if business.owner_id != u_uuid:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have access to this business's documents",
-        )
+        raise AuthorizationError(detail="You do not have access to this business")
 
     documents = await document_service.get_documents_by_business_id(
         business_id=b_uuid, session=session
@@ -130,10 +115,7 @@ async def create_document(
 ):
     user_id = token_details.get("user_data", {}).get("user_id")
     if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload",
-        )
+        raise AuthenticationError(detail="Invalid token payload")
     u_uuid = _parse_uuid(user_id, "user ID")
     b_uuid = _parse_uuid(business_id, "business ID")
 
@@ -142,52 +124,33 @@ async def create_document(
         business_id=b_uuid, session=session
     )
     if not business:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Business not found",
-        )
+        raise NotFoundError(detail="Business not found")
+
     if business.owner_id != u_uuid:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have permission to upload documents to this business",
+        raise AuthorizationError(
+            detail="You do not have permission to upload documents to this business"
         )
 
     if not file or not file.filename:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No file provided",
-        )
+        raise ValidationError(detail="No file provided")
 
     if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid file type. Only PDFs are allowed.",
-        )
+        raise ValidationError(detail="Invalid file type. Only PDFs are allowed.")
 
     try:
         contents = await file.read()
         if not contents:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Uploaded file is empty",
-            )
+            raise ValidationError(detail="Uploaded file is empty")
         if not contents.startswith(b"%PDF"):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid PDF file structure",
-            )
+            raise ValidationError(detail="Uploaded file is not a valid PDF")
         pdf_stream = io.BytesIO(contents)
         reader = PdfReader(pdf_stream)
         num_pages = len(reader.pages)
         if num_pages == 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="PDF contains no pages",
-            )
+            raise ValidationError(detail="PDF contains no pages")
         if num_pages > MAX_PDF_PAGES:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"PDF exceeds the maximum limit of {MAX_PDF_PAGES} pages (uploaded PDF has {num_pages} pages)",
+            raise ValidationError(
+                detail=f"PDF exceeds the maximum limit of {MAX_PDF_PAGES} pages (uploaded PDF has {num_pages} pages)"
             )
         extracted_text = ""
         for page in reader.pages:
@@ -233,10 +196,7 @@ async def deleted_document(
 ):
     user_id = token_details.get("user_data", {}).get("user_id")
     if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload",
-        )
+        raise AuthenticationError(detail="Invalid token payload")
     u_uuid = _parse_uuid(user_id, "user ID")
     doc_uuid = _parse_uuid(document_id, "document ID")
 
@@ -244,18 +204,16 @@ async def deleted_document(
         id=doc_uuid, session=session
     )
     if not existing_doc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found",
-        )
+        raise NotFoundError(detail="Document not found")
 
     business = await business_service.get_business_by_id(
         business_id=existing_doc.business_id, session=session
     )
-    if not business or (business.owner_id != u_uuid and existing_doc.uploaded_by != u_uuid):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have permission to delete this document",
+    if not business or (
+        business.owner_id != u_uuid and existing_doc.uploaded_by != u_uuid
+    ):
+        raise AuthorizationError(
+            detail="You do not have permission to delete this document"
         )
 
     document = await document_service.delete_document(

@@ -5,6 +5,12 @@ from fastapi.responses import StreamingResponse
 
 from src.core.dependency import verify_token
 from src.core.main import get_session
+from src.exceptions import (
+    AuthenticationError,
+    AuthorizationError,
+    NotFoundError,
+    ValidationError,
+)
 from src.knowra.agent.stream import stream_chat
 from src.models.chat_schemas import ChatRequest
 from src.services.business import BuisnessService
@@ -22,19 +28,13 @@ async def chat(
     user_id = token_details.get("user_data", {}).get("user_id")
 
     if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload",
-        )
+        raise AuthenticationError(detail="Invalid token payload")
 
     try:
         business_uuid = UUID(business_id)
         user_uuid = UUID(user_id)
     except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid ID",
-        )
+        raise ValidationError(detail="Invalid ID")
 
     business_service = BuisnessService()
 
@@ -44,16 +44,10 @@ async def chat(
     )
 
     if not business:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Business not found",
-        )
+        raise NotFoundError(detail="Business not found")
 
     if business.owner_id != user_uuid:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have access to this business",
-        )
+        raise AuthorizationError(detail="You do not have access to this business")
     return StreamingResponse(
         stream_chat(
             message=data.message,
@@ -83,11 +77,7 @@ async def widget_chat(
     )
 
     if not business:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Business not found",
-        )
-
+        raise NotFoundError(detail="Business not found")
     return StreamingResponse(
         stream_chat(
             message=data.message,
@@ -109,6 +99,7 @@ async def get_chat_history(thread_id: str):
     Get message history for an ongoing chat thread from PostgreSQL checkpointer.
     """
     from langchain_core.messages import AIMessage, HumanMessage
+
     from src.knowra.agent.graph import build_graph
 
     graph = await build_graph()

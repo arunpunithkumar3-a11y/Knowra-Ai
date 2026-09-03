@@ -1,3 +1,4 @@
+import asyncio
 import re
 
 from langchain_core.messages import AIMessage, SystemMessage
@@ -31,10 +32,21 @@ async def agent_node(state: AgentState):
             0,
             SystemMessage(content=REACT_AGENT_SYSTEM_PROMPT),
         )
-
-    response = await model_with_tools.ainvoke(messages)
-
-    return {"messages": [response]}
+    for attempt in range(3):
+        try:
+            response = await model_with_tools.ainvoke(messages)
+            return {"messages": [response]}
+        except Exception:
+            if attempt < 2:
+                await asyncio.sleep(2**attempt)
+            else:
+                return {
+                    "messages": [
+                        AIMessage(
+                            content="I'm temporarily unable to process your request. Please try again in a moment."
+                        )
+                    ]
+                }
 
 
 async def safety_node(state: AgentState):

@@ -46,7 +46,6 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Redis shutdown warning: {e}")
 
 
-
 app = FastAPI(
     title="Knowra API",
     description="Production-grade AI Knowledge Management API",

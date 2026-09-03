@@ -1,15 +1,16 @@
 from datetime import timedelta
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.celery_tasks import send_welcome_message
 from src.core.dependency import verify_any_token, verify_refresh_token
 from src.core.main import get_session
 from src.core.password import verify_password
 from src.core.redis import add_jti_to_blacklist
 from src.core.security import create_access_token
+from src.exceptions import AuthenticationError, ConflictError, ValidationError
 from src.models.auth_schemas import UserLogin, UserSignup
 from src.services.user import UserService
 
@@ -31,11 +32,10 @@ async def user_signup(
     service: UserService = Depends(get_user_service),
 ):
     if await service.user_exists(data.email, session):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="User with this email already exists",
-        )
+        raise ConflictError(detail="User with this email already exists")
+
     await service.create_user(data, session)
+    send_welcome_message.delay(data.email)
     return JSONResponse(
         status_code=status.HTTP_201_CREATED,
         content={"message": "Account created successfully"},
@@ -50,15 +50,10 @@ async def user_login(
 ):
     user = await service.get_user_by_email(data.email, session)
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
-        )
+        raise AuthenticationError(detail="Invalid email or password")
     if not verify_password(data.password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
-        )
+        raise AuthenticationError(detail="Invalid password")
+
     access_token = create_access_token(
         data={"email": user.email, "user_id": str(user.uid)}
     )
@@ -67,6 +62,7 @@ async def user_login(
         refresh=True,
         expire=timedelta(days=REFRESH_TOKEN_EXPIRY_DAYS),
     )
+    send_welcome_message.delay(user.email)
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={"access_token": access_token, "refresh_token": refresh_token},
@@ -79,10 +75,7 @@ async def refresh_token_endpoint(
 ):
     user_data = token_details.get("user_data", {})
     if not user_data:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload",
-        )
+        raise AuthenticationError(detail="Invalid token payload")
     old_jti = token_details.get("jti")
     if old_jti:
         await add_jti_to_blacklist(old_jti)
@@ -115,9 +108,6 @@ async def user_logout(
 @auth_router.post("/logout/{jti}")
 async def user_logout_by_param(jti: str):
     if not jti or not jti.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Please provide a valid token identifier (jti)",
-        )
+        raise ValidationError(detail="JTI must be provided and cannot be empty")
     await add_jti_to_blacklist(jti.strip())
     return {"message": "Logout successful"}

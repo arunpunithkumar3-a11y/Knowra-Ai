@@ -28,6 +28,16 @@ class Settings(BaseSettings):
     SPARSE_K: int = 3
     RRF_K: int = 60
     TOP_K_RERANK: int = 3
+    MAIL_USERNAME: str
+    MAIL_PASSWORD: str
+    MAIL_FROM: str
+    MAIL_PORT: int
+    MAIL_SERVER: str
+    MAIL_FROM_NAME: str
+    MAIL_STARTTLS: bool
+    MAIL_SSL_TLS: bool = False
+    USE_CREDENTIALS: bool = True
+    VALIDATE_CERTS: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
