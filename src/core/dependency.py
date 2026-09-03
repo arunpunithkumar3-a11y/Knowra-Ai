@@ -1,11 +1,15 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-
+from itsdangerous import URLSafeTimedSerializer
 from src.core.redis import token_in_blacklist
 from src.core.security import decode_access_token
+from src.config import configure
 
 security = HTTPBearer()
-
+serializer = URLSafeTimedSerializer(
+    secret_key=configure.JWT_SECRET,
+    salt="email configuration"
+)
 
 async def verify_any_token(
     creds: HTTPAuthorizationCredentials = Depends(security),
@@ -46,3 +50,18 @@ async def verify_refresh_token(
             detail="Please provide a valid refresh token",
         )
     return token_data
+
+def create_url_safe_token(data: dict) -> str:
+    return serializer.dumps(data)
+
+
+def decode_url_safe_token(token: str) -> dict:
+    try:
+        data = serializer.loads(token)
+        return data
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired token",
+        ) from e
+

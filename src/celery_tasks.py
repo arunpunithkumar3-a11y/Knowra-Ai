@@ -151,8 +151,12 @@ def process_document(
 
 
 async def _send_welcome_message(email: str):
-    message = create_message(recipents=[email], subject="Welcome to Knowra", body=body)
-    await send_mail(message)
+    message = create_message(recipients=[email], subject="Welcome to Knowra", body=body)
+    await send_mail.send_message(message)
+
+async def _send_password_reset_link(email: str, _body: str):
+    message = create_message(recipients=[email], subject="Reset Your Password", body=_body)
+    await send_mail.send_message(message)
 
 
 @celery_app.task(
@@ -168,7 +172,7 @@ async def _send_welcome_message(email: str):
     acks_late=True,
     reject_on_worker_lost=True,
 )
-def send_welcome_message(self,email: str):
+def send_welcome_message(self, email: str):
     """
     Celery entry point for sending welcome email.
 
@@ -176,3 +180,24 @@ def send_welcome_message(self,email: str):
     """
 
     asyncio.run(_send_welcome_message(email=email))
+
+
+@celery_app.task(
+    bind=True,
+    name="send_password_reset_link",
+    # Retry configuration
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
+    max_retries=3,
+    # Reliability
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def send_password_reset_link(self, email: str, _body: str):
+    """
+    Celery entry point for sending password reset email link.
+    """
+
+    asyncio.run(_send_password_reset_link(email=email, _body=_body))

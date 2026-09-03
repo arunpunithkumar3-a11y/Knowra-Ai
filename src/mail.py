@@ -2,8 +2,7 @@ from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
 
 from src.config import configure
 
-body = (
-    """
+body = """
         <html>
             <body>
                 <h2>Welcome to Knowra </h2>
@@ -28,8 +27,7 @@ body = (
                 </p>
             </body>
         </html>
-        """,
-)
+"""
 
 mail_config = ConnectionConfig(
     MAIL_USERNAME=configure.MAIL_USERNAME,
@@ -47,8 +45,8 @@ mail_config = ConnectionConfig(
 send_mail = FastMail(mail_config)
 
 
-def create_message(recipents: list[str], subject: str, body: str):
+def create_message(recipients: list[str], subject: str, body: str):
     message = MessageSchema(
-        recipients=recipents, subject=subject, body=body, subtype=MessageType.html
+        recipients=recipients, subject=subject, body=body, subtype=MessageType.html
     )
     return message

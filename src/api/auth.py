@@ -1,17 +1,28 @@
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.celery_tasks import send_welcome_message
-from src.core.dependency import verify_any_token, verify_refresh_token
+from src.celery_tasks import send_password_reset_link, send_welcome_message
+from src.config import configure
+from src.core.dependency import (
+    create_url_safe_token,
+    decode_url_safe_token,
+    verify_any_token,
+    verify_refresh_token,
+)
 from src.core.main import get_session
-from src.core.password import verify_password
+from src.core.password import create_hash_password, verify_password
 from src.core.redis import add_jti_to_blacklist
 from src.core.security import create_access_token
-from src.exceptions import AuthenticationError, ConflictError, ValidationError
-from src.models.auth_schemas import UserLogin, UserSignup
+from src.exceptions import (
+    AuthenticationError,
+    ConflictError,
+    NotFoundError,
+    ValidationError,
+)
+from src.models.auth_schemas import PasswordReset, UserLogin, UserSignup
 from src.services.user import UserService
 
 auth_router = APIRouter()
@@ -111,3 +122,50 @@ async def user_logout_by_param(jti: str):
         raise ValidationError(detail="JTI must be provided and cannot be empty")
     await add_jti_to_blacklist(jti.strip())
     return {"message": "Logout successful"}
+
+
+@auth_router.post("/password_reset")
+async def password_reset_request(email: str):
+    token = create_url_safe_token({"email": email})
+    link = f"http://{configure.DOMAIN}/api/auth/password_reset_confirm/{token}"
+    html_message = f"""
+    <h1>Reset Your Password</h1>
+    <p>Please click this <a href="{link}">link</a> to Reset Your Password</p>
+    """
+    send_password_reset_link.delay(email=email, _body=html_message)
+    return JSONResponse(
+        content={
+            "message": "Please Check your email for instructions to reset your password"
+        },
+        status_code=status.HTTP_200_OK,
+    )
+
+
+@auth_router.post("/password_reset_confirm/{token}")
+async def password_reset_confirm(
+    token: str, data: PasswordReset, session: AsyncSession = Depends(get_session)
+):
+
+    if data.new_password != data.confirm_new_password:
+        raise HTTPException(
+            detail="Passwords do not match", status_code=status.HTTP_400_BAD_REQUEST
+        )
+    token_data = decode_url_safe_token(token)
+    user_email = token_data.get("email")
+    if user_email:
+        user = await user_service.get_user_by_email(email=user_email, session=session)
+        if not user:
+            raise NotFoundError(detail="User Not Found")
+        await user_service.update_user(
+            data={"password_hash": create_hash_password(data.new_password)},
+            user_id=user.uid,
+            session=session,
+        )
+        return JSONResponse(
+            content={"message": "Password Reset Successfully"},
+            status_code=status.HTTP_200_OK,
+        )
+    return JSONResponse(
+        content={"message": "Error Occured during password reset"},
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    )

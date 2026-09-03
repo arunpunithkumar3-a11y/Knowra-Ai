@@ -49,9 +49,18 @@ class UserService:
         return new_user
 
     async def update_user(
-        self, data: UserUpdate, user_id: Union[UUID, str], session: AsyncSession
+        self,
+        data: Union[UserUpdate, dict],
+        user_id: Union[UUID, str],
+        session: AsyncSession,
     ) -> Optional[User]:
-        user_data = data.model_dump(exclude_unset=True)
+        if isinstance(data, UserUpdate):
+            user_data = data.model_dump(exclude_unset=True)
+        elif isinstance(data, dict):
+            user_data = data
+        else:
+            user_data = dict(data)
+
         user = await self.get_user_by_id(user_id, session)
         if not user:
             return None
