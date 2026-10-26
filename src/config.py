@@ -1,6 +1,12 @@
+import logging
+from pathlib import Path
+from typing import Any, List, Optional
+
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -11,6 +17,7 @@ class Settings(BaseSettings):
     QDRANT_URL: str
     QDRANT_API_KEY: str
     NVIDIA_API_KEY: str
+    GROQ_API_KEY: str
     NVIDIA_BASE_URL: str
     EMBEDDING_MODEL: str
     RERANKER_MODEL: str
@@ -28,19 +35,22 @@ class Settings(BaseSettings):
     SPARSE_K: int = 3
     RRF_K: int = 60
     TOP_K_RERANK: int = 3
-    MAIL_USERNAME: str
-    MAIL_PASSWORD: str
-    MAIL_FROM: str
-    MAIL_PORT: int
-    MAIL_SERVER: str
-    MAIL_FROM_NAME: str
-    MAIL_STARTTLS: bool
+    MAIL_USERNAME: str = ""
+    MAIL_PASSWORD: str = ""
+    MAIL_FROM: str = ""
+    MAIL_PORT: int = 587
+    MAIL_SERVER: str = ""
+    MAIL_FROM_NAME: str = "Knowra"
+    MAIL_STARTTLS: bool = True
     MAIL_SSL_TLS: bool = False
     USE_CREDENTIALS: bool = True
     VALIDATE_CERTS: bool = True
     DOMAIN: str = "localhost:8000"
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=Path(__file__).resolve().parent.parent / ".env",
+        extra="ignore",
+    )
 
 
 configure = Settings()
@@ -70,20 +80,82 @@ class _LazyReranker:
 
     def _get_instance(self):
         if self._instance is None:
-            from langchain_nvidia_ai_endpoints import NVIDIARerank
+            try:
+                from langchain_nvidia_ai_endpoints import NVIDIARerank
+                from langchain_nvidia_ai_endpoints._statics import MODEL_TABLE, Model
 
-            self._instance = NVIDIARerank(
-                model=configure.RERANKER_MODEL,
-                api_key=configure.NVIDIA_API_KEY,
-                top_n=configure.TOP_K_RERANK,
-            )
+                model_name = configure.RERANKER_MODEL
+                if model_name and model_name not in MODEL_TABLE:
+                    MODEL_TABLE[model_name] = Model(
+                        id=model_name,
+                        model_type="ranking",
+                        client="NVIDIARerank",
+                        endpoint=f"https://ai.api.nvidia.com/v1/retrieval/{model_name}/reranking",
+                        supports_tools=False,
+                        supports_structured_output=False,
+                        supports_thinking=False,
+                        deprecated=False,
+                    )
+
+                self._instance = NVIDIARerank(
+                    model=model_name,
+                    api_key=configure.NVIDIA_API_KEY,
+                    top_n=configure.TOP_K_RERANK,
+                )
+            except Exception as e:
+                logger.warning("Reranker initialization skipped/failed: %s", e)
+                self._instance = None
         return self._instance
 
-    def compress_documents(self, *args, **kwargs):
-        return self._get_instance().compress_documents(*args, **kwargs)
+    def compress_documents(self, documents: List[Any], query: str, *args, **kwargs) -> List[Any]:
+        inst = self._get_instance()
+        if inst is not None:
+            try:
+                return inst.compress_documents(documents=documents, query=query, *args, **kwargs)
+            except Exception as e:
+                logger.warning("Reranking failed (%s); returning unranked candidates.", e)
+        return documents[: configure.TOP_K_RERANK]
+
+    async def acompress_documents(self, documents: List[Any], query: str, *args, **kwargs) -> List[Any]:
+        inst = self._get_instance()
+        if inst is not None:
+            try:
+                return await inst.acompress_documents(documents=documents, query=query, *args, **kwargs)
+            except Exception as e:
+                logger.warning("Async reranking failed (%s); returning unranked candidates.", e)
+        return documents[: configure.TOP_K_RERANK]
 
 
 reranker = _LazyReranker()
+
+
+class _LazyClassifier:
+    def __init__(self):
+        self._instance = None
+
+    def _get_instance(self):
+        if self._instance is None:
+            pkl_path = Path(__file__).resolve().parent.parent / "question_relevance_pipeline.pkl"
+            if pkl_path.exists():
+                try:
+                    import joblib
+                    self._instance = joblib.load(pkl_path)
+                except Exception as e:
+                    logger.warning("Classifier load failed: %s", e)
+                    self._instance = None
+        return self._instance
+
+    def predict(self, texts: List[str], *args, **kwargs) -> List[str]:
+        inst = self._get_instance()
+        if inst is not None:
+            try:
+                return inst.predict(texts, *args, **kwargs)
+            except Exception as e:
+                logger.warning("Classifier predict failed: %s", e)
+        return ["no"] * len(texts)
+
+
+classifier = _LazyClassifier()
 
 
 safety_llm = ChatOpenAI(

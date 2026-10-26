@@ -20,7 +20,7 @@ async_session_maker = async_sessionmaker(
 
 
 async def init_db():
-    from src.models.database import Business, Documents, User
+    import src.models.database  # Ensure all SQLModel tables are registered
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
 

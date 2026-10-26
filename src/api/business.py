@@ -12,9 +12,8 @@ from src.exceptions import (
     ValidationError,
 )
 from src.models.business_schemas import BusinessCreate, BusinessUpdate
-from src.services.business import BusinessService
+from src.services.business import business_service
 
-business_service = BusinessService()
 business_router = APIRouter()
 
 
@@ -36,6 +35,7 @@ async def get_business(
         raise AuthenticationError(detail="Invalid token payload")
     u_uuid = _parse_uuid(user_id, "user ID")
     b_uuid = _parse_uuid(business_id, "business ID")
+
     business = await business_service.get_business_by_id(
         business_id=b_uuid, session=session
     )
@@ -70,8 +70,11 @@ async def create_business(
     user_id = token_details.get("user_data", {}).get("user_id")
     if not user_id:
         raise AuthenticationError(detail="Invalid token payload")
-    if not data.business_name or not data.business_name.strip():
+
+    biz_name = (data.business_name or getattr(data, "name", "") or "").strip()
+    if not biz_name:
         raise ValidationError(detail="Business name is required")
+
     u_uuid = _parse_uuid(user_id, "user ID")
     new_business = await business_service.create_business(
         business_data=data, owner_id=u_uuid, session=session
@@ -146,6 +149,7 @@ async def get_widget_info(
         )
     return {
         "business_name": business.business_name,
-        "welcome_message": "Hi! How can I help you today?",
+        "description": business.description,
+        "welcome_message": f"Hi! Welcome to {business.business_name}. How can I help you today?",
         "primary_color": "#2563eb",
     }

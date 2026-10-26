@@ -2,6 +2,7 @@ from src.api.auth import auth_router
 from src.api.business import business_router
 from src.api.chat import agent_router
 from src.api.document import document_router
+from src.api.feature import feature_router
 
 buisness_router = business_router
 chat_router = agent_router
@@ -13,4 +14,5 @@ __all__ = [
     "document_router",
     "agent_router",
     "chat_router",
+    "feature_router",
 ]

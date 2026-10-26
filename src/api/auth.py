@@ -1,7 +1,8 @@
 from datetime import timedelta
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.celery_tasks import send_password_reset_link, send_welcome_message
@@ -22,44 +23,42 @@ from src.exceptions import (
     NotFoundError,
     ValidationError,
 )
-from src.models.auth_schemas import PasswordReset, UserLogin, UserSignup
-from src.services.user import UserService
+from src.models.auth_schemas import (
+    PasswordReset,
+    PasswordResetRequest,
+    UserLogin,
+    UserSignup,
+)
+from src.services.user import user_service
 
 auth_router = APIRouter()
 
 REFRESH_TOKEN_EXPIRY_DAYS = 2
-
-user_service = UserService()
-
-
-def get_user_service() -> UserService:
-    return user_service
 
 
 @auth_router.post("/signup", status_code=status.HTTP_201_CREATED)
 async def user_signup(
     data: UserSignup,
     session: AsyncSession = Depends(get_session),
-    service: UserService = Depends(get_user_service),
 ):
-    if await service.user_exists(data.email, session):
+    if await user_service.user_exists(data.email, session):
         raise ConflictError(detail="User with this email already exists")
 
-    await service.create_user(data, session)
-    send_welcome_message.delay(data.email)
-    return JSONResponse(
-        status_code=status.HTTP_201_CREATED,
-        content={"message": "Account created successfully"},
-    )
+    await user_service.create_user(data, session)
+    try:
+        send_welcome_message.delay(data.email)
+    except Exception:
+        pass
+
+    return {"message": "Account created successfully"}
 
 
 @auth_router.post("/login")
 async def user_login(
     data: UserLogin,
     session: AsyncSession = Depends(get_session),
-    service: UserService = Depends(get_user_service),
 ):
-    user = await service.get_user_by_email(data.email, session)
+    user = await user_service.get_user_by_email(data.email, session)
     if not user:
         raise AuthenticationError(detail="Invalid email or password")
     if not verify_password(data.password, user.password_hash):
@@ -73,11 +72,7 @@ async def user_login(
         refresh=True,
         expire=timedelta(days=REFRESH_TOKEN_EXPIRY_DAYS),
     )
-    send_welcome_message.delay(user.email)
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={"access_token": access_token, "refresh_token": refresh_token},
-    )
+    return {"access_token": access_token, "refresh_token": refresh_token}
 
 
 @auth_router.post("/refresh")
@@ -97,13 +92,10 @@ async def refresh_token_endpoint(
         refresh=True,
         expire=timedelta(days=REFRESH_TOKEN_EXPIRY_DAYS),
     )
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={
-            "access_token": new_access_token,
-            "refresh_token": new_refresh_token,
-        },
-    )
+    return {
+        "access_token": new_access_token,
+        "refresh_token": new_refresh_token,
+    }
 
 
 @auth_router.post("/logout")
@@ -125,47 +117,66 @@ async def user_logout_by_param(jti: str):
 
 
 @auth_router.post("/password_reset")
-async def password_reset_request(email: str):
-    token = create_url_safe_token({"email": email})
-    link = f"http://{configure.DOMAIN}/api/auth/password_reset_confirm/{token}"
+async def password_reset_request(
+    data: Optional[PasswordResetRequest] = None,
+    email: Optional[str] = None,
+):
+    target_email = (data.email if data else email) or ""
+    target_email = target_email.strip()
+    if not target_email:
+        raise ValidationError(detail="Email is required")
+
+    token = create_url_safe_token({"email": target_email})
+    domain = getattr(configure, "DOMAIN", "localhost:3000")
+    if "://" not in domain:
+        domain = f"http://{domain}"
+    link = f"{domain}/reset-password/{token}"
     html_message = f"""
     <h1>Reset Your Password</h1>
     <p>Please click this <a href="{link}">link</a> to Reset Your Password</p>
     """
-    send_password_reset_link.delay(email=email, _body=html_message)
-    return JSONResponse(
-        content={
-            "message": "Please Check your email for instructions to reset your password"
-        },
-        status_code=status.HTTP_200_OK,
+    try:
+        send_password_reset_link.delay(email=target_email, _body=html_message)
+    except Exception:
+        pass
+
+    return {
+        "message": "Please Check your email for instructions to reset your password"
+    }
+
+
+@auth_router.get("/password_reset_confirm/{token}")
+async def password_reset_confirm_redirect(token: str):
+    domain = getattr(configure, "DOMAIN", "localhost:3000")
+    if "://" not in domain:
+        domain = f"http://{domain}"
+    return RedirectResponse(
+        url=f"{domain}/reset-password/{token}",
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
     )
 
 
 @auth_router.post("/password_reset_confirm/{token}")
 async def password_reset_confirm(
-    token: str, data: PasswordReset, session: AsyncSession = Depends(get_session)
+    token: str,
+    data: PasswordReset,
+    session: AsyncSession = Depends(get_session),
 ):
-
     if data.new_password != data.confirm_new_password:
-        raise HTTPException(
-            detail="Passwords do not match", status_code=status.HTTP_400_BAD_REQUEST
-        )
+        raise ValidationError(detail="Passwords do not match")
+
     token_data = decode_url_safe_token(token)
-    user_email = token_data.get("email")
-    if user_email:
-        user = await user_service.get_user_by_email(email=user_email, session=session)
-        if not user:
-            raise NotFoundError(detail="User Not Found")
-        await user_service.update_user(
-            data={"password_hash": create_hash_password(data.new_password)},
-            user_id=user.uid,
-            session=session,
-        )
-        return JSONResponse(
-            content={"message": "Password Reset Successfully"},
-            status_code=status.HTTP_200_OK,
-        )
-    return JSONResponse(
-        content={"message": "Error Occured during password reset"},
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    user_email = token_data.get("email") if isinstance(token_data, dict) else None
+    if not user_email:
+        raise ValidationError(detail="Invalid or expired reset token")
+
+    user = await user_service.get_user_by_email(email=user_email, session=session)
+    if not user:
+        raise NotFoundError(detail="User Not Found")
+
+    await user_service.update_user(
+        data={"password_hash": create_hash_password(data.new_password)},
+        user_id=user.uid,
+        session=session,
     )
+    return {"message": "Password Reset Successfully"}

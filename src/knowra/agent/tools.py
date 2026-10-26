@@ -10,9 +10,9 @@ async def search_knowledge_base(
     config: RunnableConfig,
 ) -> str:
     """
-    Search the business knowledge base.
+    Search the company's verified knowledge base for documents, policies, products,
+    services, pricing, and internal documentation.
     """
-
     configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
     business_id = configurable.get("business_id")
 

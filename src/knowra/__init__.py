@@ -11,12 +11,12 @@ from .pipeline import RAGPipeline, rag_pipeline
 from .prompt import (
     CHATBOT_SYSTEM_PROMPT,
     REACT_AGENT_SYSTEM_PROMPT,
+    get_business_system_prompt,
     get_rag_prompt,
 )
 from .retrievers import (
     ReciprocalRankFusion,
     SentenceWindowParentChildRetriever,
-    retriever,
     rrf,
 )
 
@@ -25,10 +25,10 @@ __all__ = [
     "rag_pipeline",
     "SentenceWindowParentChildRetriever",
     "ReciprocalRankFusion",
-    "retriever",
     "rrf",
     "CHATBOT_SYSTEM_PROMPT",
     "REACT_AGENT_SYSTEM_PROMPT",
+    "get_business_system_prompt",
     "get_rag_prompt",
     "stream_chat",
     "build_graph",
@@ -38,4 +38,3 @@ __all__ = [
     "tools",
     "search_knowledge_base",
 ]
-

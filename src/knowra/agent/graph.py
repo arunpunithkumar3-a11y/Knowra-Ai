@@ -32,16 +32,21 @@ async def build_graph():
         should_continue,
         {
             "tools": "tools",
-            "end": END,
+            END: END,
         },
     )
 
     workflow.add_edge("tools", "agent")
 
-    return workflow.compile(checkpointer=await get_checkpointer())
+    checkpointer = await get_checkpointer()
+    return workflow.compile(checkpointer=checkpointer)
 
 
-def __getattr__(name: str):
-    if name == "graph":
-        return build_graph()
-    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+_compiled_graph = None
+
+
+async def get_compiled_graph():
+    global _compiled_graph
+    if _compiled_graph is None:
+        _compiled_graph = await build_graph()
+    return _compiled_graph

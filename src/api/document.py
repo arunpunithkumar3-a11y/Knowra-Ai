@@ -7,6 +7,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.celery_tasks import process_document
 from src.core.dependency import verify_token
 from src.core.main import get_session
 from src.exceptions import (
@@ -15,15 +16,15 @@ from src.exceptions import (
     NotFoundError,
     ValidationError,
 )
-from src.knowra.retrievers import retriever
+from src.knowra.retrievers import get_retriever
 from src.models.document_schemas import AddDocument, EmbeddingStatus
 from src.services.business import BusinessService
 from src.services.document import DocumentService
-from src.celery_tasks import process_document
 
 document_router = APIRouter()
 document_service = DocumentService()
 business_service = BusinessService()
+retriever = get_retriever()
 splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=200)
 
 MAX_PDF_PAGES = 10
@@ -51,7 +52,6 @@ async def get_document(
     if not document:
         raise NotFoundError(detail="Document not found")
 
-    # Verify ownership
     business = await business_service.get_business_by_id(
         business_id=document.business_id, session=session
     )
@@ -83,10 +83,7 @@ async def get_document_by_business(
 ):
     user_id = token_details.get("user_data", {}).get("user_id")
     if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload",
-        )
+        raise AuthenticationError(detail="Invalid token payload")
     u_uuid = _parse_uuid(user_id, "user ID")
     b_uuid = _parse_uuid(business_id, "business ID")
 
@@ -119,7 +116,6 @@ async def create_document(
     u_uuid = _parse_uuid(user_id, "user ID")
     b_uuid = _parse_uuid(business_id, "business ID")
 
-    # Verify that the business exists and belongs to current user
     business = await business_service.get_business_by_id(
         business_id=b_uuid, session=session
     )
@@ -129,6 +125,14 @@ async def create_document(
     if business.owner_id != u_uuid:
         raise AuthorizationError(
             detail="You do not have permission to upload documents to this business"
+        )
+
+    existing_docs = await document_service.get_documents_by_business(
+        business_id=b_uuid, session=session
+    )
+    if existing_docs and len(existing_docs) >= 1:
+        raise ValidationError(
+            detail="Document limit reached: Only 1 active document is allowed per knowledge base. Please delete the existing document before uploading a new one."
         )
 
     if not file or not file.filename:
@@ -160,10 +164,7 @@ async def create_document(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to process PDF file: {str(e)}",
-        )
+        raise ValidationError(detail=f"Failed to process PDF file: {str(e)}")
     splitted_docs = splitter.create_documents([extracted_text])
     data = AddDocument(
         original_filename=file.filename,
@@ -216,11 +217,8 @@ async def deleted_document(
             detail="You do not have permission to delete this document"
         )
 
-    document = await document_service.delete_document(
-        document_id=doc_uuid, session=session
-    )
+    await document_service.delete_document(document_id=doc_uuid, session=session)
 
-    # Clean up vector database points
     retriever.delete_document_vectors(
         business_id=existing_doc.business_id,
         document_id=existing_doc.uid,

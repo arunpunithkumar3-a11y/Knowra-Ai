@@ -9,21 +9,26 @@ redis_client = Redis.from_url(
 )
 
 
-# JTI blacklist expiry should be longer than the longest token (refresh token = 2 days)
-JTI_EXPIRY = 60 * 60 * 24 * 2  # 2 days in seconds
+JTI_EXPIRY = 60 * 60 * 24 * 2
 
 
 async def add_jti_to_blacklist(jti: str) -> None:
-    await redis_client.setex(
-        name=jti,
-        time=JTI_EXPIRY,
-        value="true",
-    )
+    try:
+        await redis_client.setex(
+            name=jti,
+            time=JTI_EXPIRY,
+            value="true",
+        )
+    except Exception:
+        pass
 
 
 async def token_in_blacklist(jti: str) -> bool:
-    exists = await redis_client.exists(jti)
-    return exists == 1
+    try:
+        exists = await redis_client.exists(jti)
+        return exists == 1
+    except Exception:
+        return False
 
 
 async def close_memory() -> None:
@@ -31,4 +36,3 @@ async def close_memory() -> None:
         await redis_client.aclose()
     except Exception:
         pass
-

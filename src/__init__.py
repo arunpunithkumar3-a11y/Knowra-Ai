@@ -7,22 +7,20 @@ if sys.platform == "win32":
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import text
 
-from src.api import agent_router, auth_router, business_router, document_router
-from src.core.main import get_session, init_db
-from src.core.redis import close_memory, redis_client
-from src.exceptions import (
-    AppException,
-    AuthenticationError,
-    AuthorizationError,
-    DatabaseError,
-    NotFoundError,
-    ValidationError,
+from src.api import (
+    agent_router,
+    auth_router,
+    business_router,
+    document_router,
+    feature_router,
 )
+from src.core.main import init_db
+from src.core.redis import close_memory
+from src.exceptions import AppException
 
 logging.basicConfig(
     level=logging.INFO,
@@ -75,6 +73,14 @@ async def app_exception_handler(request, exc: AppException):
     )
 
 
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc: HTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"message": str(exc.detail), "detail": exc.detail},
+    )
+
+
 @app.exception_handler(404)
 async def not_found_handler(request, exc):
     return JSONResponse(
@@ -104,3 +110,4 @@ app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(business_router, prefix="/api/business", tags=["business"])
 app.include_router(document_router, prefix="/api/document", tags=["document"])
 app.include_router(agent_router, prefix="/api/chat", tags=["chat"])
+app.include_router(feature_router, prefix="/api", tags=["feature"])

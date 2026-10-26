@@ -143,6 +143,13 @@ class Business(SQLModel, table=True):
             "cascade": "all, delete-orphan",
         },
     )
+    questions_asked: List["Questions"] = Relationship(
+        back_populates="business_questions",
+        sa_relationship_kwargs={
+            "lazy": "selectin",
+            "cascade": "all, delete-orphan",
+        },
+    )
 
 
 # ============================================================
@@ -226,5 +233,41 @@ class Documents(SQLModel, table=True):
     )
 
 
-# Backwards compatibility alias
+class Questions(SQLModel, table=True):
+    __tablename__ = "questions"
+
+    uid: uuid.UUID = Field(
+        sa_column=Column(
+            pg.UUID(as_uuid=True),
+            primary_key=True,
+            default=uuid.uuid4,
+        )
+    )
+
+    business_id: uuid.UUID = Field(
+        sa_column=Column(
+            pg.UUID(as_uuid=True),
+            ForeignKey(
+                "businesses.uid",
+                ondelete="CASCADE",
+            ),
+            nullable=False,
+            index=True,
+        )
+    )
+
+    question_text: str = Field(
+        max_length=500,
+    )
+
+    created_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column_kwargs={"server_default": "now()"},
+    )
+
+    business_questions: Optional["Business"] = Relationship(
+        back_populates="questions_asked"
+    )
+
+
 Document = Documents

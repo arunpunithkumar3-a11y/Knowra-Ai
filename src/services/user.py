@@ -27,12 +27,6 @@ class UserService:
         result = await session.execute(select(User).where(User.email == email))
         return result.scalar_one_or_none()
 
-    async def get_user_by_user_name(
-        self, user_name: str, session: AsyncSession
-    ) -> Optional[User]:
-        result = await session.execute(select(User).where(User.user_name == user_name))
-        return result.scalar_one_or_none()
-
     async def user_exists(self, email: str, session: AsyncSession) -> bool:
         user = await self.get_user_by_email(email, session)
         return user is not None

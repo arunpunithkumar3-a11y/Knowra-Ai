@@ -5,10 +5,12 @@ from sqlalchemy.ext.asyncio.session import AsyncSession
 from sqlmodel import select
 
 from src.models.database import Documents, EmbeddingStatus
-from src.models.document_schemas import AddDocument, AddDocuments
+from src.models.document_schemas import AddDocument
 
 
-def to_uuid(val: Union[UUID, str]) -> Optional[UUID]:
+def to_uuid(val: Union[UUID, str, None]) -> Optional[UUID]:
+    if not val:
+        return None
     if isinstance(val, UUID):
         return val
     try:
@@ -17,38 +19,32 @@ def to_uuid(val: Union[UUID, str]) -> Optional[UUID]:
         return None
 
 
-class DocumentsService:
+class DocumentService:
     async def get_document_by_id(
         self, id: Union[UUID, str], session: AsyncSession
     ) -> Optional[Documents]:
         doc_uuid = to_uuid(id)
         if not doc_uuid:
             return None
-        data = select(Documents).where(Documents.uid == doc_uuid)
-        result = await session.execute(data)
+        result = await session.execute(select(Documents).where(Documents.uid == doc_uuid))
         return result.scalar_one_or_none()
-
-    # Backwards compatibility aliases
-    get_Documents_by_id = get_document_by_id
-    get_documeny_by_id = get_document_by_id
 
     async def get_documents_by_business_id(
         self,
-        business_id: Optional[Union[UUID, str]] = None,
-        session: Optional[AsyncSession] = None,
-        buisness_id: Optional[Union[UUID, str]] = None,
+        business_id: Union[UUID, str],
+        session: AsyncSession,
+        **kwargs,
     ) -> List[Documents]:
-        b_id = business_id if business_id is not None else buisness_id
-        b_uuid = to_uuid(b_id)
+        b_uuid = to_uuid(business_id or kwargs.get("buisness_id"))
         if not b_uuid:
             return []
-        data = select(Documents).where(Documents.business_id == b_uuid)
-        result = await session.execute(data)
+        result = await session.execute(
+            select(Documents).where(Documents.business_id == b_uuid)
+        )
         return list(result.scalars().all())
 
-    # Backwards compatibility aliases
-    get_Documentss_by_business_id = get_documents_by_business_id
-    get_Documents_by_buisness_id = get_documents_by_business_id
+    # Backwards compatibility and intuitive aliases
+    get_documents_by_business = get_documents_by_business_id
 
     async def get_documents_by_uploader(
         self, uploader_id: Union[UUID, str], session: AsyncSession
@@ -56,41 +52,33 @@ class DocumentsService:
         u_uuid = to_uuid(uploader_id)
         if not u_uuid:
             return []
-        data = select(Documents).where(Documents.uploaded_by == u_uuid)
-        result = await session.execute(data)
+        result = await session.execute(
+            select(Documents).where(Documents.uploaded_by == u_uuid)
+        )
         return list(result.scalars().all())
-
-    # Backwards compatibility aliases
-    get_Documentss_by_uploader = get_documents_by_uploader
-    get_Documents_by_uploader = get_documents_by_uploader
 
     async def add_document(
         self,
-        document: Optional[AddDocument] = None,
-        documents: Optional[AddDocument] = None,
-        user_id: Optional[Union[UUID, str]] = None,
-        buisness_id: Optional[Union[UUID, str]] = None,
-        business_id: Optional[Union[UUID, str]] = None,
-        session: Optional[AsyncSession] = None,
+        document: AddDocument,
+        user_id: Union[UUID, str],
+        business_id: Union[UUID, str],
+        session: AsyncSession,
+        **kwargs,
     ) -> Documents:
-        doc_data = document if document is not None else documents
-        b_id = business_id if business_id is not None else buisness_id
-        b_uuid = to_uuid(b_id)
+        doc_data = document or kwargs.get("documents")
+        b_uuid = to_uuid(business_id or kwargs.get("buisness_id"))
         u_uuid = to_uuid(user_id)
 
-        # Serialize document chunks to list of dicts for JSONB storage
         serialized_chunks = None
         if doc_data and doc_data.document_chunks:
-            serialized_chunks = []
-            for chunk in doc_data.document_chunks:
-                if hasattr(chunk, "model_dump"):
-                    serialized_chunks.append(chunk.model_dump())
-                elif hasattr(chunk, "dict"):
-                    serialized_chunks.append(chunk.dict())
-                elif isinstance(chunk, dict):
-                    serialized_chunks.append(chunk)
-                else:
-                    serialized_chunks.append({"page_content": str(chunk), "metadata": {}})
+            serialized_chunks = [
+                chunk.model_dump()
+                if hasattr(chunk, "model_dump")
+                else chunk
+                if isinstance(chunk, dict)
+                else {"page_content": str(chunk), "metadata": {}}
+                for chunk in doc_data.document_chunks
+            ]
 
         new_document = Documents(
             business_id=b_uuid,
@@ -106,46 +94,37 @@ class DocumentsService:
         await session.refresh(new_document)
         return new_document
 
-    # Backwards compatibility alias
-    add_Documents = add_document
-
     async def delete_document(
-        self, document_id: Union[UUID, str], session: AsyncSession, Documents_id: Optional[Union[UUID, str]] = None
+        self,
+        document_id: Union[UUID, str],
+        session: AsyncSession,
+        **kwargs,
     ) -> Optional[Documents]:
-        target_id = document_id if document_id is not None else Documents_id
-        doc = await self.get_document_by_id(target_id, session)
+        doc_uuid = to_uuid(document_id or kwargs.get("Documents_id"))
+        doc = await self.get_document_by_id(doc_uuid, session)
         if doc:
             await session.delete(doc)
             await session.commit()
         return doc
 
-    # Backwards compatibility alias
-    delete_Documents = delete_document
-
     async def update_embedding_status(
         self,
-        document_id: Optional[Union[UUID, str]] = None,
-        status: EmbeddingStatus = EmbeddingStatus.pending,
-        session: Optional[AsyncSession] = None,
-        Documents_id: Optional[Union[UUID, str]] = None,
+        document_id: Union[UUID, str],
+        status: EmbeddingStatus,
+        session: AsyncSession,
+        **kwargs,
     ) -> Optional[Documents]:
-        target_id = document_id if document_id is not None else Documents_id
-        doc = await self.get_document_by_id(
-            id=target_id,
-            session=session,
-        )
-
+        doc_uuid = to_uuid(document_id or kwargs.get("Documents_id"))
+        doc = await self.get_document_by_id(id=doc_uuid, session=session)
         if not doc:
             return None
 
         doc.embedding_status = status
-
         await session.commit()
         await session.refresh(doc)
-
         return doc
 
 
 # Class and instance aliases
-DocumentService = DocumentsService
-document_service = DocumentsService()
+DocumentsService = DocumentService
+document_service = DocumentService()

@@ -1,11 +1,16 @@
 import asyncio
+import sys
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from celery import Celery
 from langchain_core.documents import Document
 
 from src.config import configure
 from src.core.main import async_session_maker
-from src.knowra.retrievers import retriever
+from src.knowra.pipeline import invalidate_bm25_cache
+from src.knowra.retrievers import get_retriever
 from src.mail import body, create_message, send_mail
 from src.models.database import EmbeddingStatus
 from src.services.document import document_service
@@ -52,7 +57,8 @@ async def _process_document(
                 },
             )
 
-            parents, children = retriever.add_documents(
+            retriever = get_retriever()
+            parents, children = await retriever.add_documents(
                 docs=rag_document,
                 business_id=document.business_id,
                 document_id=document.uid,
@@ -63,6 +69,9 @@ async def _process_document(
                 status=EmbeddingStatus.completed,
                 session=session,
             )
+
+            # Invalidate BM25 cache so new document is immediately retrievable
+            invalidate_bm25_cache(document.business_id)
 
             print(
                 f"Successfully indexed document "
@@ -78,13 +87,11 @@ async def _process_document(
 @celery_app.task(
     bind=True,
     name="process_document",
-    # Retry configuration
     autoretry_for=(Exception,),
     retry_backoff=True,
     retry_backoff_max=300,
     retry_jitter=True,
     max_retries=3,
-    # Reliability
     acks_late=True,
     reject_on_worker_lost=True,
 )
@@ -93,32 +100,6 @@ def process_document(
     document_id: str,
     business_id: str,
 ):
-    """
-    Celery entry point for document ingestion.
-
-    Flow:
-
-        pending
-           ↓
-        processing
-           ↓
-        RAG ingestion
-           ↓
-        completed
-
-    If ingestion fails:
-
-        processing
-           ↓
-        Celery retry
-           ↓
-        processing
-           ↓
-        ...
-
-    After all retries fail, the task is considered failed.
-    """
-
     try:
         asyncio.run(
             _process_document(
@@ -126,18 +107,14 @@ def process_document(
                 business_id=business_id,
             )
         )
-
     except Exception as exc:
         if self.request.retries >= self.max_retries:
-
             async def mark_failed():
-
                 async with async_session_maker() as session:
                     document = await document_service.get_document_by_id(
                         id=document_id,
                         session=session,
                     )
-
                     if document:
                         await document_service.update_embedding_status(
                             document_id=document.uid,
@@ -146,7 +123,6 @@ def process_document(
                         )
 
             asyncio.run(mark_failed())
-
         raise exc
 
 
@@ -154,50 +130,39 @@ async def _send_welcome_message(email: str):
     message = create_message(recipients=[email], subject="Welcome to Knowra", body=body)
     await send_mail.send_message(message)
 
+
 async def _send_password_reset_link(email: str, _body: str):
-    message = create_message(recipients=[email], subject="Reset Your Password", body=_body)
+    message = create_message(
+        recipients=[email], subject="Reset Your Password", body=_body
+    )
     await send_mail.send_message(message)
 
 
 @celery_app.task(
     bind=True,
     name="send_welcome_message",
-    # Retry configuration
     autoretry_for=(Exception,),
     retry_backoff=True,
     retry_backoff_max=300,
     retry_jitter=True,
     max_retries=3,
-    # Reliability
     acks_late=True,
     reject_on_worker_lost=True,
 )
 def send_welcome_message(self, email: str):
-    """
-    Celery entry point for sending welcome email.
-
-    This task is not critical, so we don't retry on failure.
-    """
-
     asyncio.run(_send_welcome_message(email=email))
 
 
 @celery_app.task(
     bind=True,
     name="send_password_reset_link",
-    # Retry configuration
     autoretry_for=(Exception,),
     retry_backoff=True,
     retry_backoff_max=300,
     retry_jitter=True,
     max_retries=3,
-    # Reliability
     acks_late=True,
     reject_on_worker_lost=True,
 )
 def send_password_reset_link(self, email: str, _body: str):
-    """
-    Celery entry point for sending password reset email link.
-    """
-
     asyncio.run(_send_password_reset_link(email=email, _body=_body))
