@@ -21,8 +21,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # Create enums
-    embedding_status = sa.Enum('pending', 'processing', 'completed', 'failed', name='embeddingstatus')
-    embedding_status.create(op.get_bind(), checkfirst=True)
+    embedding_status = pg.ENUM('pending', 'processing', 'completed', 'failed', name='embeddingstatus', create_type=False)
+    op.execute(sa.text("DO $$ BEGIN CREATE TYPE embeddingstatus AS ENUM ('pending', 'processing', 'completed', 'failed'); EXCEPTION WHEN duplicate_object THEN null; END $$;"))
 
     # Create users table
     op.create_table(
@@ -39,8 +39,8 @@ def upgrade() -> None:
     op.create_table(
         'businesses',
         sa.Column('uid', pg.UUID(as_uuid=True), primary_key=True, default=sa.text('gen_random_uuid()')),
-        sa.Column('owner_id', pg.UUID(as_uuid=True), sa.ForeignKey('users.uid', ondelete='CASCADE'), nullable=False, index=True),
-        sa.Column('business_name', sa.String(255), nullable=False, index=True),
+        sa.Column('owner_id', pg.UUID(as_uuid=True), sa.ForeignKey('users.uid', ondelete='CASCADE'), nullable=False),
+        sa.Column('business_name', sa.String(255), nullable=False),
         sa.Column('description', sa.String(1000), nullable=True),
         sa.Column('website_url', sa.String(1024), nullable=True),
         sa.Column('public_key', sa.String(100), nullable=False, unique=True),
@@ -54,8 +54,8 @@ def upgrade() -> None:
     op.create_table(
         'documents',
         sa.Column('uid', pg.UUID(as_uuid=True), primary_key=True, default=sa.text('gen_random_uuid()')),
-        sa.Column('business_id', pg.UUID(as_uuid=True), sa.ForeignKey('businesses.uid', ondelete='CASCADE'), nullable=False, index=True),
-        sa.Column('uploaded_by', pg.UUID(as_uuid=True), sa.ForeignKey('users.uid', ondelete='SET NULL'), nullable=True, index=True),
+        sa.Column('business_id', pg.UUID(as_uuid=True), sa.ForeignKey('businesses.uid', ondelete='CASCADE'), nullable=False),
+        sa.Column('uploaded_by', pg.UUID(as_uuid=True), sa.ForeignKey('users.uid', ondelete='SET NULL'), nullable=True),
         sa.Column('original_filename', sa.String(255), nullable=False),
         sa.Column('file_type', sa.String(100), nullable=False),
         sa.Column('extracted_text', sa.Text(), nullable=True),
