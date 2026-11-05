@@ -4,7 +4,7 @@ from typing import List, Optional, Tuple, Union
 
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
-from langchain_qdrant import QdrantVectorStore
+from langchain_qdrant import FastEmbedSparse, QdrantVectorStore, RetrievalMode
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
@@ -12,6 +12,8 @@ from qdrant_client.models import (
     FieldCondition,
     Filter,
     MatchValue,
+    Modifier,
+    SparseVectorParams,
     VectorParams,
 )
 
@@ -27,10 +29,10 @@ logger = logging.getLogger(__name__)
 
 class SentenceWindowParentChildRetriever:
     """
-    Multi-tenant Sentence-Window + Parent-Child Retriever.
+    Multi-tenant Sentence-Window + Parent-Child Retriever with BM25 Hybrid Capabilities.
 
     Splits documents into parent chunks with sliding window contexts, then splits
-    into child chunks for fine-grained vector similarity search in Qdrant.
+    into child chunks for fine-grained hybrid (Dense + BM25) similarity search in Qdrant.
     Retrieval is completely stateless: window passages are stored directly inside
     the child vector metadata in Qdrant.
     """
@@ -54,6 +56,10 @@ class SentenceWindowParentChildRetriever:
         self.window = window
         self.id_key = id_key
         self.vector_size = vector_size
+
+        # Initialize the production-ready Sparse Embedding engine for BM25
+        self.sparse_embedding_model = FastEmbedSparse(model_name="Qdrant/bm25")
+
         self._vector_store: Optional[QdrantVectorStore] = None
         self._collection_ready = False
 
@@ -63,14 +69,23 @@ class SentenceWindowParentChildRetriever:
             return
         try:
             if not self.qdrant_client.collection_exists(self.collection_name):
+                # When dealing with hybrid structures in production, we switch to explicit
+                # named configurations to cleanly divide dense meaning vectors and sparse lookup fields
                 self.qdrant_client.create_collection(
                     collection_name=self.collection_name,
-                    vectors_config=VectorParams(
-                        size=self.vector_size,
-                        distance=Distance.COSINE,
-                    ),
+                    vectors_config={
+                        "dense": VectorParams(
+                            size=self.vector_size,
+                            distance=Distance.COSINE,
+                        )
+                    },
+                    sparse_vectors_config={
+                        "sparse": SparseVectorParams(modifier=Modifier.IDF)
+                    },
                 )
-                logger.info("Created Qdrant collection '%s'.", self.collection_name)
+                logger.info(
+                    "Created hybrid Qdrant collection '%s'.", self.collection_name
+                )
 
             for field in ("metadata.business_id", "metadata.document_id"):
                 try:
@@ -86,13 +101,18 @@ class SentenceWindowParentChildRetriever:
             logger.warning("Qdrant collection setup check failed: %s", e)
 
     def get_vector_store(self) -> QdrantVectorStore:
-        """Returns the cached LangChain Qdrant vector store."""
+        """Returns the cached LangChain Qdrant hybrid vector store."""
         if self._vector_store is None:
             self._ensure_collection()
+            # Construct a hybrid store tying the specific storage keys and execution layer together
             self._vector_store = QdrantVectorStore(
                 client=self.qdrant_client,
                 collection_name=self.collection_name,
                 embedding=self.embedding_model,
+                sparse_embedding=self.sparse_embedding_model,
+                vector_name="dense",
+                sparse_vector_name="sparse",
+                retrieval_mode=RetrievalMode.HYBRID,
             )
         return self._vector_store
 
@@ -137,6 +157,7 @@ class SentenceWindowParentChildRetriever:
     ) -> Tuple[List[Document], List[Document]]:
         """
         Split document into windowed parents and index child vectors in Qdrant.
+        Both dense structural maps and sparse BM25 positions are generated automatically.
         Returns: (parent_documents, child_documents)
         """
         if not docs:

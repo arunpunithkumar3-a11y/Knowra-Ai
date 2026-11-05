@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str
     RERANKER_MODEL: str
     LLM_MODEL: str
+    JUDGE_MODEL:str
     PARENT_CHUNK_SIZE: int = 350
     PARENT_CHUNK_OVERLAP: int = 50
     CHILD_CHUNK_SIZE: int = 75
@@ -61,6 +62,7 @@ embedding_model = OpenAIEmbeddings(
     model=configure.EMBEDDING_MODEL,
     api_key=configure.NVIDIA_API_KEY,
     check_embedding_ctx_length=False,
+    chunk_size=128,
     model_kwargs={"extra_body": {"input_type": "passage"}},
 )
 
@@ -160,6 +162,14 @@ classifier = _LazyClassifier()
 
 safety_llm = ChatOpenAI(
     model="nvidia/nemotron-3.5-content-safety",
+    base_url="https://integrate.api.nvidia.com/v1",
+    api_key=configure.NVIDIA_API_KEY,
+    temperature=0,
+)
+
+
+judge_llm = ChatOpenAI(
+    model=configure.JUDGE_MODEL,
     base_url="https://integrate.api.nvidia.com/v1",
     api_key=configure.NVIDIA_API_KEY,
     temperature=0,

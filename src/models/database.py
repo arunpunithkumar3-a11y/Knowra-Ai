@@ -3,9 +3,12 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import List, Optional
 
+from langchain_core.documents import Document as LangchainDocument
 from sqlalchemy import Column, ForeignKey, Text
 from sqlalchemy.dialects import postgresql as pg
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
+from sqlmodel import Field as SQLField
 
 # ============================================================
 # ENUMS
@@ -208,12 +211,8 @@ class Documents(SQLModel, table=True):
             nullable=True,
         ),
     )
-    document_chunks: Optional[List[dict]] = Field(
-        default=None,
-        sa_column=Column(
-            pg.JSONB,
-            nullable=True,
-        ),
+    document_chunks: Optional[List[LangchainDocument]] = SQLField(
+        default=None, sa_column=Column(JSONB)
     )
     embedding_status: EmbeddingStatus = Field(
         default=EmbeddingStatus.pending,

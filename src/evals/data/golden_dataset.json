@@ -1,0 +1,77 @@
+[
+  {
+    "id": 1,
+    "query": "What are the reception hours and member access hours?",
+    "ideal_answer": "Reception is open Monday-Friday 8:00 AM-8:00 PM and Saturday 9:00 AM-5:00 PM, and closed on Sunday. Active monthly members have building access from 6:00 AM to 11:00 PM daily; day-pass access follows reception hours."
+  },
+  {
+    "id": 2,
+    "query": "Where is the UrbanNest Indiranagar Centre located?",
+    "ideal_answer": "2nd Floor, 48 12th Main Road, Indiranagar, Bengaluru, Karnataka 560038."
+  },
+  {
+    "id": 3,
+    "query": "How much is a Day Pass and what does it include?",
+    "ideal_answer": "INR 599 per day (before taxes). It includes one hot desk, reception-hour access, Wi-Fi, tea/coffee, and printing up to 5 pages."
+  },
+  {
+    "id": 4,
+    "query": "What is the Flex 5 plan and how much does it cost?",
+    "ideal_answer": "Flex 5 costs INR 2,499 per month and includes 5 day credits per calendar month. Each credit is used when a member checks in for a day (it is not five hours)."
+  },
+  {
+    "id": 5,
+    "query": "Can unused Flex 5 credits be carried over to the next month?",
+    "ideal_answer": "No. Unused credits expire at month-end, do not roll over, cannot be transferred, and have no cash value."
+  },
+  {
+    "id": 6,
+    "query": "What is the monthly price of Flex Unlimited, and does it guarantee a reserved desk?",
+    "ideal_answer": "INR 6,499 per month. It does not guarantee a particular desk; seats are first-come, first-served and cannot be reserved. It gives hot-desk access every day the centre is open with 6 AM-11 PM member access."
+  },
+  {
+    "id": 7,
+    "query": "How much is a 2-seat private office and what is included?",
+    "ideal_answer": "INR 24,000 per month. It is an enclosed office for up to 2 people with 10 meeting-room hours per month."
+  },
+  {
+    "id": 8,
+    "query": "What is the security deposit for a two-seat private office and when is it returned?",
+    "ideal_answer": "The refundable deposit equals one month of the base fee, so INR 24,000. It is returned within 15 business days after checkout, minus deductions for unpaid invoices, missing access cards, or damage beyond normal wear. It does not earn interest."
+  },
+  {
+    "id": 9,
+    "query": "A customer wants a six-person meeting room for 90 minutes. Which room fits, what is the rate, and what is the minimum booking?",
+    "ideal_answer": "Focus 2 (capacity 6) at INR 750 per hour. Minimum booking is one hour, with 30-minute increments, so 90 minutes is allowed (about INR 1,125 at the hourly rate)."
+  },
+  {
+    "id": 10,
+    "query": "If a meeting is cancelled 10 hours before it starts, what refund applies?",
+    "ideal_answer": "A 50% refund (cancellations 6-24 hours before start). At least 24 hours gets a full refund, and under 6 hours is non-refundable."
+  },
+  {
+    "id": 11,
+    "query": "How many visitors can a member bring and for how long?",
+    "ideal_answer": "Up to two registered visitors at a time, for a maximum of two hours, subject to capacity. Visitors must show valid photo ID and be accompanied by their host."
+  },
+  {
+    "id": 12,
+    "query": "Can I get a refund if I cancel a monthly plan halfway through the month?",
+    "ideal_answer": "Normally no. Cancellation stops the next renewal but does not refund the current billing period, and access stays active until the end of the paid period."
+  },
+  {
+    "id": 13,
+    "query": "What are the event room rates and capacity?",
+    "ideal_answer": "INR 8,000 for a four-hour weekday block and INR 11,000 for a four-hour Saturday block, plus INR 1,500 per additional hour, excluding catering, speakers, security, and taxes. Capacity is 30 seated or 40 standing. A refundable INR 3,000 cleaning deposit applies for events with food or more than 20 attendees."
+  },
+  {
+    "id": 14,
+    "query": "Does UrbanNest offer parking for members' vehicles, and what does it cost?",
+    "ideal_answer": "This is not specified in the document. Please contact hello@urbannest.example."
+  },
+  {
+    "id": 15,
+    "query": "Can I use a Day Pass on Sunday?",
+    "ideal_answer": "No. The centre is closed to customers on Sundays."
+  }
+]

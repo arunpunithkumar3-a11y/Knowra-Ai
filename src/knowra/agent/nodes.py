@@ -3,7 +3,7 @@ import logging
 import re
 from typing import Literal
 
-from langchain_core.messages import AIMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END
@@ -12,7 +12,7 @@ from src.config import configure, safety_llm
 from src.knowra.agent.state import AgentState
 from src.knowra.agent.tools import tools
 from src.knowra.guardrails import get_rails
-from src.knowra.prompt import get_business_system_prompt
+from src.knowra.prompt import prompt_template
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,8 @@ llm = ChatOpenAI(
 )
 
 model_with_tools = llm.bind_tools(tools)
+
+agent_chain = prompt_template | model_with_tools
 
 
 def clean_thinking(response: str) -> str:
@@ -43,28 +45,21 @@ async def agent_node(state: AgentState, config: RunnableConfig = None):
     Decides whether to invoke search_knowledge_base or answer directly.
     Generates document-grounded, business-aligned responses without mentioning Knowra.
     """
-    configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
-    business_name = (
-        configurable.get("business_name") or state.get("business_name") or ""
-    )
-    business_description = (
-        configurable.get("business_description")
-        or state.get("business_description")
-        or ""
-    )
-
-    system_prompt = get_business_system_prompt(
-        business_name=business_name,
-        business_description=business_description,
-    )
-
-    messages = list(state.get("messages", []))
-    formatted = [m for m in messages if not isinstance(m, SystemMessage)]
-    formatted.insert(0, SystemMessage(content=system_prompt))
+    messages = state.get("messages", [])
+    question = ""
+    for m in reversed(messages):
+        if isinstance(m, HumanMessage) or getattr(m, "type", "") == "human":
+            question = str(getattr(m, "content", ""))
+            break
+    if not question and messages:
+        question = str(getattr(messages[-1], "content", messages[-1]))
 
     for attempt in range(3):
         try:
-            response = await model_with_tools.ainvoke(formatted)
+            response = await agent_chain.ainvoke(
+                {"question": question},
+                config=config,
+            )
             content_str = (
                 response.content
                 if isinstance(response.content, str)
