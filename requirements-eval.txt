@@ -1,0 +1,4 @@
+# Dependencies for offline RAG evaluation (deepeval)
+-r requirements.txt
+deepeval==4.3.2
+click<8.4.0,>=8.0.0
