@@ -15,10 +15,19 @@ from src.mail import body, create_message, send_mail
 from src.models.database import EmbeddingStatus
 from src.services.document import document_service
 
+def _get_celery_redis_url(url: str) -> str:
+    if url.startswith("rediss://") and "ssl_cert_reqs" not in url:
+        sep = "&" if "?" in url else "?"
+        return f"{url}{sep}ssl_cert_reqs=CERT_NONE"
+    return url
+
+
+_celery_url = _get_celery_redis_url(configure.REDIS_URL)
+
 celery_app = Celery(
     "knowra",
-    broker=configure.REDIS_URL,
-    backend=configure.REDIS_URL,
+    broker=_celery_url,
+    backend=_celery_url,
 )
 
 
