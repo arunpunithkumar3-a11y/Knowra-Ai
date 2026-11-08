@@ -88,12 +88,12 @@ async def safety_node(state: AgentState):
 
     user_query = str(messages[-1].content)
     try:
-        response = await safety_llm.ainvoke(user_query)
+        response = await asyncio.wait_for(safety_llm.ainvoke(user_query), timeout=2.5)
         result = str(response.content).strip().lower()
         if "user safety: unsafe" in result:
             return {"safety": "unsafe"}
     except Exception as e:
-        logger.warning("Safety check failed, defaulting to safe: %s", e)
+        logger.warning("Safety check skipped or timed out, defaulting to safe: %s", e)
 
     return {"safety": "safe"}
 

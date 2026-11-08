@@ -114,6 +114,9 @@ async def stream_chat(
 
     think_filter = ThinkFilter()
 
+    # Flush initial SSE comment to unbuffer proxy and confirm immediate streaming connection
+    yield ": ping\n\n"
+
     try:
         async for msg, meta in graph.astream(
             input_data, config=config, stream_mode="messages"
