@@ -64,13 +64,31 @@ class SentenceWindowParentChildRetriever:
         self._collection_ready = False
 
     def _ensure_collection(self) -> None:
-        """Create Qdrant collection and payload indices once if they do not exist."""
+        """Create Qdrant collection and payload indices once if they do not exist, or recreate if schema is legacy."""
         if self._collection_ready:
             return
         try:
-            if not self.qdrant_client.collection_exists(self.collection_name):
-                # When dealing with hybrid structures in production, we switch to explicit
-                # named configurations to cleanly divide dense meaning vectors and sparse lookup fields
+            need_create = False
+            if self.qdrant_client.collection_exists(self.collection_name):
+                try:
+                    info = self.qdrant_client.get_collection(self.collection_name)
+                    vectors_config = getattr(info.config.params, "vectors", None)
+                    sparse_config = getattr(info.config.params, "sparse_vectors", None)
+                    # If existing collection is built with unnamed vectors (not a dict or doesn't have "dense")
+                    # or missing sparse vectors config, recreate it with the hybrid schema
+                    if not isinstance(vectors_config, dict) or "dense" not in vectors_config or not sparse_config:
+                        logger.warning(
+                            "Qdrant collection '%s' has legacy unnamed/non-hybrid schema. Recreating collection...",
+                            self.collection_name,
+                        )
+                        self.qdrant_client.delete_collection(self.collection_name)
+                        need_create = True
+                except Exception as ex:
+                    logger.warning("Could not verify Qdrant collection vectors config: %s", ex)
+            else:
+                need_create = True
+
+            if need_create:
                 self.qdrant_client.create_collection(
                     collection_name=self.collection_name,
                     vectors_config={
@@ -104,16 +122,40 @@ class SentenceWindowParentChildRetriever:
         """Returns the cached LangChain Qdrant hybrid vector store."""
         if self._vector_store is None:
             self._ensure_collection()
-            # Construct a hybrid store tying the specific storage keys and execution layer together
-            self._vector_store = QdrantVectorStore(
-                client=self.qdrant_client,
-                collection_name=self.collection_name,
-                embedding=self.embedding_model,
-                sparse_embedding=self.sparse_embedding_model,
-                vector_name="dense",
-                sparse_vector_name="sparse",
-                retrieval_mode=RetrievalMode.HYBRID,
-            )
+            try:
+                self._vector_store = QdrantVectorStore(
+                    client=self.qdrant_client,
+                    collection_name=self.collection_name,
+                    embedding=self.embedding_model,
+                    sparse_embedding=self.sparse_embedding_model,
+                    vector_name="dense",
+                    sparse_vector_name="sparse",
+                    retrieval_mode=RetrievalMode.HYBRID,
+                )
+            except Exception as e:
+                if "unnamed dense vector" in str(e).lower() or "force_recreate" in str(e).lower():
+                    logger.warning(
+                        "Collection schema mismatch: %s. Recreating '%s' with hybrid configuration...",
+                        e,
+                        self.collection_name,
+                    )
+                    try:
+                        self.qdrant_client.delete_collection(self.collection_name)
+                    except Exception:
+                        pass
+                    self._collection_ready = False
+                    self._ensure_collection()
+                    self._vector_store = QdrantVectorStore(
+                        client=self.qdrant_client,
+                        collection_name=self.collection_name,
+                        embedding=self.embedding_model,
+                        sparse_embedding=self.sparse_embedding_model,
+                        vector_name="dense",
+                        sparse_vector_name="sparse",
+                        retrieval_mode=RetrievalMode.HYBRID,
+                    )
+                else:
+                    raise e
         return self._vector_store
 
     def delete_document_vectors(
