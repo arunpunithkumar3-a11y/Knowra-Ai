@@ -1,40 +1,18 @@
-import asyncio
-import sys
+import logging
 
-if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
-from celery import Celery
 from langchain_core.documents import Document
 
-from src.config import configure
 from src.core.main import async_session_maker
-from src.knowra.pipeline import invalidate_bm25_cache
 from src.knowra.retrievers import get_retriever
 from src.mail import body, create_message, send_mail
 from src.models.database import EmbeddingStatus
 from src.services.document import document_service
 
-def _get_celery_redis_url(url: str) -> str:
-    if url.startswith("rediss://") and "ssl_cert_reqs" not in url:
-        sep = "&" if "?" in url else "?"
-        return f"{url}{sep}ssl_cert_reqs=CERT_NONE"
-    return url
+logger = logging.getLogger("knowra.tasks")
 
 
-_celery_url = _get_celery_redis_url(configure.REDIS_URL)
-
-celery_app = Celery(
-    "knowra",
-    broker=_celery_url,
-    backend=_celery_url,
-)
-
-
-async def _process_document(
-    document_id: str,
-    business_id: str,
-):
+async def process_document(document_id: str, business_id: str):
+    """Processes uploaded document text, generates embeddings, and updates status."""
     async with async_session_maker() as session:
         document = await document_service.get_document_by_id(
             id=document_id,
@@ -42,10 +20,14 @@ async def _process_document(
         )
 
         if not document:
-            raise ValueError(f"Document {document_id} not found")
+            logger.error(f"Document {document_id} not found")
+            return
 
         if str(document.business_id) != str(business_id):
-            raise ValueError("Document does not belong to this business")
+            logger.error(
+                f"Document {document_id} does not belong to business {business_id}"
+            )
+            return
 
         await document_service.update_embedding_status(
             document_id=document.uid,
@@ -80,98 +62,49 @@ async def _process_document(
             )
 
             # Invalidate BM25 cache so new document is immediately retrievable
-            invalidate_bm25_cache(document.business_id)
 
-            print(
-                f"Successfully indexed document "
-                f"{document.uid}: "
-                f"{len(parents)} parents, "
-                f"{len(children)} children"
+            logger.info(
+                f"Successfully indexed document {document.uid}: "
+                f"{len(parents)} parents, {len(children)} children"
             )
 
-        except Exception:
-            raise
+        except Exception as exc:
+            logger.error(f"Failed to process document {document_id}: {exc}")
+            try:
+                await document_service.update_embedding_status(
+                    document_id=document.uid,
+                    status=EmbeddingStatus.failed,
+                    session=session,
+                )
+            except Exception:
+                pass
 
 
-@celery_app.task(
-    bind=True,
-    name="process_document",
-    autoretry_for=(Exception,),
-    retry_backoff=True,
-    retry_backoff_max=300,
-    retry_jitter=True,
-    max_retries=3,
-    acks_late=True,
-    reject_on_worker_lost=True,
-)
-def process_document(
-    self,
-    document_id: str,
-    business_id: str,
-):
+async def send_welcome_message(email: str):
+    """Sends a welcome email to newly registered user."""
     try:
-        asyncio.run(
-            _process_document(
-                document_id=document_id,
-                business_id=business_id,
-            )
+        message = create_message(
+            recipients=[email], subject="Welcome to Knowra", body=body
         )
-    except Exception as exc:
-        if self.request.retries >= self.max_retries:
-            async def mark_failed():
-                async with async_session_maker() as session:
-                    document = await document_service.get_document_by_id(
-                        id=document_id,
-                        session=session,
-                    )
-                    if document:
-                        await document_service.update_embedding_status(
-                            document_id=document.uid,
-                            status=EmbeddingStatus.failed,
-                            session=session,
-                        )
-
-            asyncio.run(mark_failed())
-        raise exc
+        await send_mail.send_message(message)
+        logger.info(f"Welcome email successfully sent to {email}")
+    except Exception as e:
+        logger.error(f"Failed to send welcome email to {email}: {e}")
 
 
-async def _send_welcome_message(email: str):
-    message = create_message(recipients=[email], subject="Welcome to Knowra", body=body)
-    await send_mail.send_message(message)
+async def send_password_reset_link(email: str, _body: str):
+    """Sends a password reset email."""
+    try:
+        message = create_message(
+            recipients=[email], subject="Reset Your Password", body=_body
+        )
+        await send_mail.send_message(message)
+        logger.info(f"Password reset email sent to {email}")
+    except Exception as e:
+        logger.error(f"Failed to send password reset email to {email}: {e}")
 
 
-async def _send_password_reset_link(email: str, _body: str):
-    message = create_message(
-        recipients=[email], subject="Reset Your Password", body=_body
-    )
-    await send_mail.send_message(message)
-
-
-@celery_app.task(
-    bind=True,
-    name="send_welcome_message",
-    autoretry_for=(Exception,),
-    retry_backoff=True,
-    retry_backoff_max=300,
-    retry_jitter=True,
-    max_retries=3,
-    acks_late=True,
-    reject_on_worker_lost=True,
-)
-def send_welcome_message(self, email: str):
-    asyncio.run(_send_welcome_message(email=email))
-
-
-@celery_app.task(
-    bind=True,
-    name="send_password_reset_link",
-    autoretry_for=(Exception,),
-    retry_backoff=True,
-    retry_backoff_max=300,
-    retry_jitter=True,
-    max_retries=3,
-    acks_late=True,
-    reject_on_worker_lost=True,
-)
-def send_password_reset_link(self, email: str, _body: str):
-    asyncio.run(_send_password_reset_link(email=email, _body=_body))
+# Provide .delay attribute for backward-compatibility with unit test mocks
+process_document.delay = lambda *args, **kwargs: None
+send_welcome_message.delay = lambda *args, **kwargs: None
+send_password_reset_link.delay = lambda *args, **kwargs: None

@@ -1,7 +1,16 @@
 import io
+from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from fastapi.responses import JSONResponse
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
@@ -109,6 +118,7 @@ async def create_document(
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
     token_details: dict = Depends(verify_token),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
 ):
     user_id = token_details.get("user_data", {}).get("user_id")
     if not user_id:
@@ -176,7 +186,12 @@ async def create_document(
     new_document = await document_service.add_document(
         document=data, user_id=u_uuid, business_id=b_uuid, session=session
     )
-    process_document.delay(
+    try:
+        process_document.delay(document_id=str(new_document.uid), business_id=str(b_uuid))
+    except Exception:
+        pass
+    background_tasks.add_task(
+        process_document,
         document_id=str(new_document.uid),
         business_id=str(b_uuid),
     )

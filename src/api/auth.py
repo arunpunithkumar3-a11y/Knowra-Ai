@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, BackgroundTasks, Depends, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,6 +40,7 @@ REFRESH_TOKEN_EXPIRY_DAYS = 2
 async def user_signup(
     data: UserSignup,
     session: AsyncSession = Depends(get_session),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
 ):
     if await user_service.user_exists(data.email, session):
         raise ConflictError(detail="User with this email already exists")
@@ -49,6 +50,7 @@ async def user_signup(
         send_welcome_message.delay(data.email)
     except Exception:
         pass
+    background_tasks.add_task(send_welcome_message, data.email)
 
     return {"message": "Account created successfully"}
 
@@ -120,6 +122,7 @@ async def user_logout_by_param(jti: str):
 async def password_reset_request(
     data: Optional[PasswordResetRequest] = None,
     email: Optional[str] = None,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
 ):
     target_email = (data.email if data else email) or ""
     target_email = target_email.strip()
@@ -139,6 +142,7 @@ async def password_reset_request(
         send_password_reset_link.delay(email=target_email, _body=html_message)
     except Exception:
         pass
+    background_tasks.add_task(send_password_reset_link, target_email, html_message)
 
     return {
         "message": "Please Check your email for instructions to reset your password"
