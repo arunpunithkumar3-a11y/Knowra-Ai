@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str
     RERANKER_MODEL: str
     LLM_MODEL: str
-    JUDGE_MODEL:str
+    JUDGE_MODEL: str
     PARENT_CHUNK_SIZE: int = 350
     PARENT_CHUNK_OVERLAP: int = 50
     CHILD_CHUNK_SIZE: int = 75
@@ -109,22 +109,34 @@ class _LazyReranker:
                 self._instance = None
         return self._instance
 
-    def compress_documents(self, documents: List[Any], query: str, *args, **kwargs) -> List[Any]:
+    def compress_documents(
+        self, documents: List[Any], query: str, *args, **kwargs
+    ) -> List[Any]:
         inst = self._get_instance()
         if inst is not None:
             try:
-                return inst.compress_documents(documents=documents, query=query, *args, **kwargs)
+                return inst.compress_documents(
+                    documents=documents, query=query, *args, **kwargs
+                )
             except Exception as e:
-                logger.warning("Reranking failed (%s); returning unranked candidates.", e)
+                logger.warning(
+                    "Reranking failed (%s); returning unranked candidates.", e
+                )
         return documents[: configure.TOP_K_RERANK]
 
-    async def acompress_documents(self, documents: List[Any], query: str, *args, **kwargs) -> List[Any]:
+    async def acompress_documents(
+        self, documents: List[Any], query: str, *args, **kwargs
+    ) -> List[Any]:
         inst = self._get_instance()
         if inst is not None:
             try:
-                return await inst.acompress_documents(documents=documents, query=query, *args, **kwargs)
+                return await inst.acompress_documents(
+                    documents=documents, query=query, *args, **kwargs
+                )
             except Exception as e:
-                logger.warning("Async reranking failed (%s); returning unranked candidates.", e)
+                logger.warning(
+                    "Async reranking failed (%s); returning unranked candidates.", e
+                )
         return documents[: configure.TOP_K_RERANK]
 
 
@@ -137,10 +149,14 @@ class _LazyClassifier:
 
     def _get_instance(self):
         if self._instance is None:
-            pkl_path = Path(__file__).resolve().parent.parent / "question_relevance_pipeline.pkl"
+            pkl_path = (
+                Path(__file__).resolve().parent.parent
+                / "question_relevance_pipeline.pkl"
+            )
             if pkl_path.exists():
                 try:
                     import joblib
+
                     self._instance = joblib.load(pkl_path)
                 except Exception as e:
                     logger.warning("Classifier load failed: %s", e)
@@ -160,8 +176,41 @@ class _LazyClassifier:
 classifier = _LazyClassifier()
 
 
+class _LazySafetyClassifier:
+    def __init__(self):
+        self._instance = None
+
+    def _get_instance(self):
+        if self._instance is None:
+            pkl_path = (
+                Path(__file__).resolve().parent.parent
+                / "safety_classifier_pipeline.pkl"
+            )
+            if pkl_path.exists():
+                try:
+                    import joblib
+
+                    self._instance = joblib.load(pkl_path)
+                except Exception as e:
+                    logger.warning("Safety classifier load failed: %s", e)
+                    self._instance = None
+        return self._instance
+
+    def predict(self, texts: List[str], *args, **kwargs) -> List[str]:
+        inst = self._get_instance()
+        if inst is not None:
+            try:
+                return list(inst.predict(texts, *args, **kwargs))
+            except Exception as e:
+                logger.warning("Safety classifier predict failed: %s", e)
+        return ["safe"] * len(texts)
+
+
+safety_classifier = _LazySafetyClassifier()
+
+
 safety_llm = ChatOpenAI(
-    model="nvidia/nemotron-3.5-content-safety",
+    model="nvidia/llama-3.1-nemotron-safety-guard-8b-v3",
     base_url="https://integrate.api.nvidia.com/v1",
     api_key=configure.NVIDIA_API_KEY,
     temperature=0,

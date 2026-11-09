@@ -3,12 +3,12 @@ import logging
 import re
 from typing import Literal
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END
 
-from src.config import configure, safety_llm
+from src.config import configure, safety_classifier
 from src.knowra.agent.state import AgentState
 from src.knowra.agent.tools import tools
 from src.knowra.guardrails import get_rails
@@ -46,18 +46,13 @@ async def agent_node(state: AgentState, config: RunnableConfig = None):
     Generates document-grounded, business-aligned responses without mentioning Knowra.
     """
     messages = state.get("messages", [])
-    question = ""
-    for m in reversed(messages):
-        if isinstance(m, HumanMessage) or getattr(m, "type", "") == "human":
-            question = str(getattr(m, "content", ""))
-            break
-    if not question and messages:
-        question = str(getattr(messages[-1], "content", messages[-1]))
+    if not messages:
+        return {"messages": [AIMessage(content="Hello! How can I help you today?")]}
 
     for attempt in range(3):
         try:
             response = await agent_chain.ainvoke(
-                {"question": question},
+                {"messages": messages},
                 config=config,
             )
             content_str = (
@@ -88,12 +83,12 @@ async def safety_node(state: AgentState):
 
     user_query = str(messages[-1].content)
     try:
-        response = await asyncio.wait_for(safety_llm.ainvoke(user_query), timeout=2.5)
-        result = str(response.content).strip().lower()
-        if "user safety: unsafe" in result:
+        # Ultra-fast local ML pipeline (<20ms) detecting harmful, injection, and off-topic queries
+        prediction = safety_classifier.predict([user_query])[0]
+        if prediction == "unsafe":
             return {"safety": "unsafe"}
     except Exception as e:
-        logger.warning("Safety check skipped or timed out, defaulting to safe: %s", e)
+        logger.warning("Safety classifier check skipped: %s", e)
 
     return {"safety": "safe"}
 
@@ -108,6 +103,18 @@ def should_continue(state: AgentState) -> Literal["tools", "__end__"]:
     if isinstance(last_message, AIMessage) and getattr(
         last_message, "tool_calls", None
     ):
+        # Guard: Cap maximum tool invocations per turn to prevent any potential infinite loops
+        tool_invocations = sum(
+            1
+            for m in messages
+            if isinstance(m, ToolMessage) or getattr(m, "type", "") == "tool"
+        )
+        if tool_invocations >= 3:
+            logger.warning(
+                "Maximum tool invocation limit (%d) reached for turn. Ending to prevent infinite loop.",
+                tool_invocations,
+            )
+            return END
         return "tools"
 
     return END

@@ -51,7 +51,7 @@ class RAGPipeline:
             query=query, business_id=biz_key, k=configure.DENSE_K
         )
 
-        fused_docs = rrf.rank([docs for docs in (dense_docs) if docs])
+        fused_docs = rrf.rank([dense_docs] if dense_docs else [])
         if not fused_docs:
             return []
 

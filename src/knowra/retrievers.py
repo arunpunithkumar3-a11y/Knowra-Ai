@@ -76,7 +76,11 @@ class SentenceWindowParentChildRetriever:
                     sparse_config = getattr(info.config.params, "sparse_vectors", None)
                     # If existing collection is built with unnamed vectors (not a dict or doesn't have "dense")
                     # or missing sparse vectors config, recreate it with the hybrid schema
-                    if not isinstance(vectors_config, dict) or "dense" not in vectors_config or not sparse_config:
+                    if (
+                        not isinstance(vectors_config, dict)
+                        or "dense" not in vectors_config
+                        or not sparse_config
+                    ):
                         logger.warning(
                             "Qdrant collection '%s' has legacy unnamed/non-hybrid schema. Recreating collection...",
                             self.collection_name,
@@ -84,7 +88,9 @@ class SentenceWindowParentChildRetriever:
                         self.qdrant_client.delete_collection(self.collection_name)
                         need_create = True
                 except Exception as ex:
-                    logger.warning("Could not verify Qdrant collection vectors config: %s", ex)
+                    logger.warning(
+                        "Could not verify Qdrant collection vectors config: %s", ex
+                    )
             else:
                 need_create = True
 
@@ -133,7 +139,10 @@ class SentenceWindowParentChildRetriever:
                     retrieval_mode=RetrievalMode.HYBRID,
                 )
             except Exception as e:
-                if "unnamed dense vector" in str(e).lower() or "force_recreate" in str(e).lower():
+                if (
+                    "unnamed dense vector" in str(e).lower()
+                    or "force_recreate" in str(e).lower()
+                ):
                     logger.warning(
                         "Collection schema mismatch: %s. Recreating '%s' with hybrid configuration...",
                         e,
@@ -332,15 +341,26 @@ class ReciprocalRankFusion:
 
     def rank(
         self,
-        retrieved_docs: List[List[Document]],
+        retrieved_docs: List[List[Document]] | List[Document],
         k: Optional[int] = None,
     ) -> List[Document]:
+        if not retrieved_docs:
+            return []
+
+        # If a flat List[Document] was passed instead of List[List[Document]]
+        if isinstance(retrieved_docs[0], Document):
+            retrieved_docs = [retrieved_docs]  # type: ignore
+
         k_val = k if k is not None else self.k
         scores = {}
         docs = {}
 
         for doc_list in retrieved_docs:
+            if not isinstance(doc_list, (list, tuple)):
+                continue
             for rank_idx, doc in enumerate(doc_list, start=1):
+                if not hasattr(doc, "page_content"):
+                    continue
                 text = doc.page_content.strip()
                 if not text:
                     continue

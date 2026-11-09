@@ -1,4 +1,4 @@
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 
 def get_business_system_prompt(
@@ -65,7 +65,7 @@ def get_rag_prompt(
     return ChatPromptTemplate.from_messages(
         [
             ("system", get_business_system_prompt(business_name, business_description)),
-            ("human", "{question}"),
+            MessagesPlaceholder(variable_name="messages"),
         ]
     )
 
@@ -103,7 +103,7 @@ prompt_template = ChatPromptTemplate.from_messages(
    - Never output internal reasoning or `<think>` tags.
    - Stay focused on assisting the customer with matters related to the business.""",
         ),
-        ("human", "{question}"),
+        MessagesPlaceholder(variable_name="messages"),
     ]
 )
 
