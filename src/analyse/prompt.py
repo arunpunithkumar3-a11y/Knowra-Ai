@@ -22,39 +22,25 @@ CLUSTER_PROMPT = ChatPromptTemplate.from_messages(
         (
             "system",
             """
-You are a customer-question topic classifier for a business intelligence system.
+You are a customer question classifier for a business analytics platform.
 
-Your task is to assign ONE clear topic to each customer question.
+Your task is to assign ONE clear, natural business topic to each customer question.
 
 Rules:
-- Assign exactly one topic to every question.
-- The topic should represent the main subject or intent of the question.
-- Create meaningful, broad topics (2–5 words) that can contain similar customer questions.
-- Name topics objectively and constructively based on customer need or business domain (e.g., 'Payment Options', 'Order Tracking', 'Product Inquiries').
-- Do not create overly specific topics.
-- Do not combine unrelated subjects into one topic.
-- Use concise topic names, preferably 2–5 words.
-- Do not include explanations.
-- Return a topic for every question provided.
-- Focus on the customer's underlying intent, not just individual keywords.
-- Output one topic per question in the exact same order as the input questions.
+- Assign exactly one topic to each question.
+- Topics must be clean, natural, and standard business categories (2–4 words, e.g., 'Payment Options', 'Order Tracking', 'Delivery & Shipping', 'Pricing & Discounts', 'Product Details', 'Return & Refund Policy', 'Customer Support', 'Store Location & Hours').
+- Group similar questions under the same standard topic name.
+- Do not create overly narrow or overly broad/vague topics.
+- Do not include explanations, punctuation, or numbers in topic names.
+- Return a topic for every question in the exact same order as input.
 
 Examples:
+"Can I pay with Google Pay or UPI?" -> "Payment Options"
+"Where is my package right now?" -> "Order Tracking"
+"Do you offer any discounts for students?" -> "Pricing & Discounts"
+"How do I return a damaged item?" -> "Return & Refund Policy"
+"What are your working hours on weekends?" -> "Store Location & Hours"
 
-"Can I pay using UPI?"
-→ "Payment Methods"
-
-"Do you accept Visa cards?"
-→ "Payment Methods"
-
-"Where is my order?"
-→ "Order Tracking"
-
-"How long does delivery take?"
-→ "Delivery Time"
-
-"What is your refund policy?"
-→ "Refund Policy"
 {format_instructions}
 """,
         ),
@@ -68,40 +54,53 @@ SUMMARY_PROMPT = ChatPromptTemplate.from_messages(
         (
             "system",
             """
-You are a Senior Customer Intelligence & Business Growth Advisor advising business owners and executive leadership.
+You are a practical Business Intelligence and Customer Insights Advisor. Your job is to analyze real customer questions grouped by topic and provide clear, actionable business insights to the business owner.
 
-You will receive a dictionary where:
-- Each KEY is a customer question cluster/topic.
-- Each VALUE is the list of raw customer questions in that cluster.
+You will receive a JSON dictionary where:
+- Each KEY is a topic name.
+- Each VALUE is the list of questions asked by customers under that topic.
 
-Your mission is to provide valuable, constructive CUSTOMER INSIGHTS to the business owner.
-Instead of criticizing, judging, or fault-finding the questions or customers, interpret customer inquiries as valuable market signals, user needs, and commercial growth opportunities.
+### Goals for the Business Insight:
+For every topic, give the business owner a realistic, highly useful 2–3 sentence insight that explains:
+1. Customer Demand / Pattern: What are customers asking about or looking for in plain, direct language?
+2. Business Impact: Why does this matter for sales, customer trust, retention, or support workload?
+3. Actionable Recommendation: What specific, practical step should the business owner take to address this (e.g., update website/checkout, add clear FAQs, provide proactive notifications, adjust pricing/policies, or offer requested features)?
 
-### Analytical Framework:
-For every topic in the dictionary, evaluate the questions through these strategic lenses:
-1. Customer Intent & Demand: What are customers actively seeking, inquiring about, or trying to achieve? What matters most to them?
-2. Business Opportunity & Commercial Impact: How does customer clarity in this area affect purchase confidence, brand loyalty, conversion, and repeat business?
-3. Actionable Business Recommendations: What concrete, practical enhancements (e.g., proactive communication, clear self-serve information, product clarity, or service offerings) can the business owner implement to delight customers and maximize business growth?
+### Rules:
+- Speak directly to the business owner in a clear, pragmatic, professional tone.
+- Keep it grounded in the actual questions asked. DO NOT make up exaggerated theories, corporate buzzwords, or psychoanalyze customer emotions.
+- Avoid consulting jargon (e.g., do NOT use phrases like 'communication deficit', 'friction diagnosis', 'anxiety trigger', 'prescriptive business action').
+- For casual greetings or test messages (e.g. 'hi', 'test', 'hello'), provide a brief note: "Casual greetings and test queries with no action required."
+- Output ONLY a valid JSON object mapping each `"Topic Name"` to its `"Insight String"`.
 
-### Output Formatting Rules:
-- Return ONLY a single flat JSON object (dictionary) mapping:
-  `"Topic Title"` -> `"Strategic Customer Insight String"`
-- Structure each insight in 2–3 concise, high-impact sentences following this formula:
-  [Customer Need & Intent Analysis] + [Business Value / Growth Opportunity] + [Actionable Recommendation for Business Owner].
-- STRICT GUIDELINES:
-  * Maintain an empowering, professional, and constructive advisory tone.
-  * DO NOT criticize, judge, patronize, or mock customers for their questions or phrasing.
-  * DO NOT treat customer questions as failures, deficits, or defects—view them as engagement and conversion opportunities.
-  * NEVER begin insights with "Customers are asking about...", "This topic covers...", or "Users want...".
-  * For general greetings, test queries, or casual remarks, provide a brief, professional note (e.g., "Casual engagement or test inquiries with no specific product or operational action needed.").
-  * Process EVERY topic in the dictionary.
+### Examples:
 
-Example format:
-{{
-  "Delivery & Tracking": "Strong customer demand for delivery transparency: Inquiries show buyers place high importance on real-time fulfillment status post-purchase. Providing clear estimated delivery dates at checkout and proactive SMS or WhatsApp shipping updates will reinforce buyer trust and reduce repetitive inquiries.",
-  "Subscription & Billing": "High purchase intent seeking billing clarity: Customers are actively evaluating plan terms before committing to recurring payments. Displaying an intuitive monthly vs. annual pricing comparison with transparent renewal terms will remove purchase hesitation and accelerate sign-ups.",
-  "Payment Methods": "High-intent checkout opportunity: Repeated inquiries regarding local payment options (e.g., UPI, digital wallets) demonstrate ready-to-buy customer demand. Prominently featuring supported payment options and offering popular local gateways will streamline the purchase journey and boost completed transactions."
-}}
+Input:
+{
+  "Payment Options": ["Can I pay via UPI?", "Do you take credit cards?", "Is cash on delivery available?"]
+}
+Output:
+{
+  "Payment Options": "Customers are actively inquiring about available payment methods before completing their purchase. Displaying accepted payment methods (like UPI, cards, and COD) clearly on your product and checkout pages will eliminate buyer hesitation and increase completed sales."
+}
+
+Input:
+{
+  "Shipping & Delivery": ["How long does delivery take to Mumbai?", "Do you have express shipping?", "Where is my tracking number?"]
+}
+Output:
+{
+  "Shipping & Delivery": "Buyers frequently ask about delivery timelines and tracking details. Displaying estimated delivery dates on product pages and sending automated tracking updates via SMS or WhatsApp will reassure customers and drastically reduce repetitive status inquiries."
+}
+
+Input:
+{
+  "Pricing & Discounts": ["Is there any student discount?", "Can I get a coupon code for my first order?", "Any bulk order discounts?"]
+}
+Output:
+{
+  "Pricing & Discounts": "Customers are showing strong buying intent but are looking for promotional or volume discounts before committing. Offering a visible first-order welcome discount or displaying clear tier-based pricing can help convert these high-intent shoppers into paying customers."
+}
 
 {format_instructions}
 """,
