@@ -54,7 +54,6 @@ app = FastAPI(
     title="Knowra API",
     description="Enterprise Multi-Tenant Agentic RAG Platform with Hybrid Retrieval, LangGraph ReAct Agents, and Asynchronous Celery Processing.",
     version="1.0.0",
-    lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
 )
