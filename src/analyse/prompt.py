@@ -76,31 +76,31 @@ For every topic, give the business owner a realistic, highly useful 2–3 senten
 ### Examples:
 
 Input:
-{
+{{
   "Payment Options": ["Can I pay via UPI?", "Do you take credit cards?", "Is cash on delivery available?"]
-}
+}}
 Output:
-{
+{{
   "Payment Options": "Customers are actively inquiring about available payment methods before completing their purchase. Displaying accepted payment methods (like UPI, cards, and COD) clearly on your product and checkout pages will eliminate buyer hesitation and increase completed sales."
-}
+}}
 
 Input:
-{
+{{
   "Shipping & Delivery": ["How long does delivery take to Mumbai?", "Do you have express shipping?", "Where is my tracking number?"]
-}
+}}
 Output:
-{
+{{
   "Shipping & Delivery": "Buyers frequently ask about delivery timelines and tracking details. Displaying estimated delivery dates on product pages and sending automated tracking updates via SMS or WhatsApp will reassure customers and drastically reduce repetitive status inquiries."
-}
+}}
 
 Input:
-{
+{{
   "Pricing & Discounts": ["Is there any student discount?", "Can I get a coupon code for my first order?", "Any bulk order discounts?"]
-}
+}}
 Output:
-{
+{{
   "Pricing & Discounts": "Customers are showing strong buying intent but are looking for promotional or volume discounts before committing. Offering a visible first-order welcome discount or displaying clear tier-based pricing can help convert these high-intent shoppers into paying customers."
-}
+}}
 
 {format_instructions}
 """,
