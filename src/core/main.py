@@ -3,8 +3,12 @@ from sqlmodel import SQLModel
 
 from src.config import configure
 
+db_url = configure.DATABASE_URL
+if db_url.startswith("postgresql://"):
+    db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
 engine = create_async_engine(
-    configure.DATABASE_URL,
+    db_url,
     echo=False,
     pool_size=20,
     max_overflow=10,
